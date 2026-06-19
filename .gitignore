@@ -1,0 +1,16 @@
+.gradle/
+build/
+*/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing / secrets — never commit
+*.jks
+*.keystore
+secring.gpg
+**/signing.properties

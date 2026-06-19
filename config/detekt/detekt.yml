@@ -1,0 +1,26 @@
+# Minimal Detekt configuration for the Mebius Android SDK.
+# Builds upon the default config (buildUponDefaultConfig = true).
+
+build:
+  maxIssues: 0
+
+complexity:
+  LongMethod:
+    threshold: 80
+  TooManyFunctions:
+    active: false
+
+style:
+  MaxLineLength:
+    maxLineLength: 140
+  ReturnCount:
+    max: 4
+  MagicNumber:
+    active: false
+
+naming:
+  FunctionNaming:
+    active: true
+
+comments:
+  active: false
