@@ -50,8 +50,6 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-        // Treat all warnings strictly except deprecations to keep the public API clean.
-        freeCompilerArgs += listOf("-Xexplicit-api=strict")
     }
 
     buildFeatures {
@@ -64,13 +62,17 @@ android {
             isReturnDefaultValues = true
         }
     }
+    // NOTE: the release publishing variant (with sources + javadoc) is
+    // configured automatically by the vanniktech maven-publish plugin below.
+    // Declaring `publishing { singleVariant("release") }` here too is a hard
+    // error ("singleVariant ... multiple times"), so it is intentionally omitted.
+}
 
-    publishing {
-        singleVariant("release") {
-            withSourcesJar()
-            withJavadocJar()
-        }
-    }
+// Enforce explicit visibility on the PUBLIC API (production sources only).
+// Using the Kotlin DSL instead of a raw -Xexplicit-api compiler arg so it does
+// NOT apply to test sources (tests don't need explicit visibility).
+kotlin {
+    explicitApi()
 }
 
 dependencies {
@@ -107,9 +109,15 @@ detekt {
 
 mavenPublishing {
     publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL, automaticRelease = false)
-    // Signing is enabled when ORG_GRADLE_PROJECT_signingInMemoryKey (or local
-    // signing.* properties) are present. Placeholders documented in README.
-    signAllPublications()
+    // Sign ONLY when a signing key is configured (required for Maven Central,
+    // not for local installs / CI dry-runs). Provide a key via
+    // ORG_GRADLE_PROJECT_signingInMemoryKey or signing.* gradle properties.
+    val hasSigningKey =
+        providers.gradleProperty("signingInMemoryKey").isPresent ||
+            providers.gradleProperty("signing.keyId").isPresent
+    if (hasSigningKey) {
+        signAllPublications()
+    }
     coordinates(
         groupId = "io.mebius",
         artifactId = "mebius-android-sdk",
