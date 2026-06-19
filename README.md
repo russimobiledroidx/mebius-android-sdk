@@ -2,7 +2,7 @@
 
 Broadcast and watch live streams from your Android app with a single, simple API.
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.mebius/mebius-android-sdk.svg?label=Maven%20Central)](https://central.sonatype.com/artifact/io.mebius/mebius-android-sdk)
+[![JitPack](https://img.shields.io/badge/install-JitPack-brightgreen.svg)](https://jitpack.io/#russimobiledroidx/mebius-android-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
@@ -35,33 +35,48 @@ Add to your app's `AndroidManifest.xml`:
 
 ---
 
-## 2. Install
+## 2. Install (from GitHub via JitPack)
 
-The SDK is published to **Maven Central**.
+This is a **private** repo, so installs go through GitHub — no Maven Central /
+domain setup needed. [JitPack](https://jitpack.io) builds the SDK straight from a
+git tag/commit.
 
-**Kotlin DSL** (`build.gradle.kts`):
+**Step 1 — get a JitPack auth token** (private repos only). Sign in at
+<https://jitpack.io> with the GitHub account that can read this repo →
+**Profile** → copy your **Authentication Token**. Put it in
+`~/.gradle/gradle.properties` (never commit it):
+
+```properties
+authToken=jp_xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**Step 2 — add the JitPack repo + dependency.**
+
+Kotlin DSL (`settings.gradle.kts` `dependencyResolutionManagement { repositories { … } }`):
 
 ```kotlin
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    implementation("io.mebius:mebius-android-sdk:0.1.0")
+maven {
+    url = uri("https://jitpack.io")
+    credentials { username = providers.gradleProperty("authToken").get() } // private repo
 }
 ```
 
-**Groovy DSL** (`build.gradle`):
+`build.gradle.kts`:
 
-```groovy
-repositories {
-    mavenCentral()
-}
-
+```kotlin
 dependencies {
-    implementation 'io.mebius:mebius-android-sdk:0.1.0'
+    // <ref> = a release tag (e.g. v0.1.0), a commit hash, or `main-SNAPSHOT`
+    implementation("com.github.russimobiledroidx:mebius-android-sdk:v0.1.0")
 }
 ```
+
+> Public repo? Drop the `credentials { }` block — that's the only difference.
+> First resolve is slower (JitPack builds the tag once, then caches the `.aar`).
+
+> **Alternative — Maven Central** (makes the artifact public even with a private
+> repo): the project is also wired for `io.mebius:mebius-android-sdk` via the
+> tag-triggered release workflow. See [PUBLISHING.md](PUBLISHING.md). Requires a
+> Sonatype account + `mebius.io` domain verification + a GPG key.
 
 ---
 
