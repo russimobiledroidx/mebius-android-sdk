@@ -119,7 +119,9 @@ mavenPublishing {
         signAllPublications()
     }
     coordinates(
-        groupId = "io.mebius",
+        // Read GROUP from gradle.properties (default "io.mebius") so JitPack can
+        // override it to "com.github.<user>" via -PGROUP for GitHub-URL installs.
+        groupId = project.findProperty("GROUP") as? String ?: "io.mebius",
         artifactId = "mebius-android-sdk",
         version = project.findProperty("VERSION_NAME") as String,
     )

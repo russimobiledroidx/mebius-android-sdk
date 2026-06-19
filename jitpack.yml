@@ -1,0 +1,8 @@
+# JitPack build config — lets anyone install this SDK straight from GitHub:
+#   implementation("com.github.russimobiledroidx:mebius-android-sdk:<tag-or-commit>")
+# No Sonatype account, no GPG, no Maven Central. JitPack builds the tag on first
+# request and caches the .aar. The repo must be public (JitPack free tier).
+jdk:
+  - openjdk17
+install:
+  - ./gradlew :mebius:publishToMavenLocal -PGROUP=com.github.russimobiledroidx -PVERSION_NAME=${VERSION:-0.1.0} --no-daemon
