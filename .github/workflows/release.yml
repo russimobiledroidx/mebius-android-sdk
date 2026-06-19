@@ -1,0 +1,43 @@
+name: Release to Maven Central
+
+# Publishes io.mebius:mebius-android-sdk to Maven Central so anyone, anywhere,
+# can use it with just:
+#   implementation("io.mebius:mebius-android-sdk:<version>")
+#
+# Trigger: push a version tag, e.g.
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Required repo secrets (Settings > Secrets and variables > Actions):
+#   MAVEN_CENTRAL_USERNAME        Central Portal token username
+#   MAVEN_CENTRAL_PASSWORD        Central Portal token password
+#   SIGNING_KEY                   ASCII-armored GPG secret key (full block)
+#   SIGNING_KEY_PASSWORD          passphrase for that key
+#
+# One-time setup (only you can do these): see PUBLISHING.md.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Publish + release to Maven Central
+        run: ./gradlew :mebius:publishAndReleaseToMavenCentral --no-daemon --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
