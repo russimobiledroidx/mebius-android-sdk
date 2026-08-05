@@ -35,29 +35,25 @@ Add to your app's `AndroidManifest.xml`:
 
 ---
 
-## 2. Install (from GitHub via JitPack)
+## 2. Install
 
-This is a **private** repo, so installs go through GitHub — no Maven Central /
-domain setup needed. [JitPack](https://jitpack.io) builds the SDK straight from a
-git tag/commit.
+Two ways in. JitPack works today; Maven Central needs no extra repository line but
+is not published yet.
 
-**Step 1 — get a JitPack auth token** (private repos only). Sign in at
-<https://jitpack.io> with the GitHub account that can read this repo →
-**Profile** → copy your **Authentication Token**. Put it in
-`~/.gradle/gradle.properties` (never commit it):
+### JitPack (available now)
 
-```properties
-authToken=jp_xxxxxxxxxxxxxxxxxxxxxxxx
-```
+The repo is public, so no auth token is needed. [JitPack](https://jitpack.io) builds
+the SDK from a git tag and caches the `.aar`.
 
-**Step 2 — add the JitPack repo + dependency.**
-
-Kotlin DSL (`settings.gradle.kts` `dependencyResolutionManagement { repositories { … } }`):
+`settings.gradle.kts`:
 
 ```kotlin
-maven {
-    url = uri("https://jitpack.io")
-    credentials { username = providers.gradleProperty("authToken").get() } // private repo
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
 }
 ```
 
@@ -65,18 +61,27 @@ maven {
 
 ```kotlin
 dependencies {
-    // <ref> = a release tag (e.g. v0.1.0), a commit hash, or `main-SNAPSHOT`
-    implementation("com.github.russimobiledroidx:mebius-android-sdk:v0.1.0")
+    // <ref> = a release tag (v0.2.1), a commit hash, or `main-SNAPSHOT`
+    implementation("com.github.russimobiledroidx:mebius-android-sdk:v0.2.1")
 }
 ```
 
-> Public repo? Drop the `credentials { }` block — that's the only difference.
-> First resolve is slower (JitPack builds the tag once, then caches the `.aar`).
+Your project also needs `android.useAndroidX=true` in `gradle.properties` — the SDK
+depends on AndroidX and media3, and Gradle fails the build without it rather than
+warning.
 
-> **Alternative — Maven Central** (makes the artifact public even with a private
-> repo): the project is also wired for `io.mebius:mebius-android-sdk` via the
-> tag-triggered release workflow. See [PUBLISHING.md](PUBLISHING.md). Requires a
-> Sonatype account + `mebius.io` domain verification + a GPG key.
+The first resolve of a new tag is slower: JitPack builds it once on demand.
+
+### Maven Central (not published yet)
+
+Wired and ready — `:mebius:publishToMavenLocal` already produces the `.aar`,
+`-sources.jar`, `-javadoc.jar` and a POM with the licence, developer and scm blocks
+Central requires. What is missing is account-side only: a verified `io.mebius`
+namespace and a GPG signing key. See [PUBLISHING.md](PUBLISHING.md).
+
+Once it is live the coordinate becomes `io.mebius:mebius-android-sdk`, and the
+`maven { }` line above is no longer needed because `mavenCentral()` is already in
+almost every project.
 
 ---
 
@@ -392,6 +397,38 @@ stable within a major version; breaking changes to the API contract result in a
 major version bump across **all** Mebius client SDKs simultaneously.
 
 ### Changelog
+
+#### 0.2.1
+- `MebiusPlayer.mode` is now public. It was private through 0.2.0, so Android was
+  the only Mebius SDK where an app could not read back which route a player was on
+  (Flutter and iOS both expose it). Nothing in this repo could catch that: every
+  consumer here lives in the same module, and `private` only bites from outside.
+
+#### 0.2.0
+- **Breaking:** `PlaybackMode` gains `AUTO`, which breaks exhaustive `when`
+  expressions, and `createPlayer()` defaults to it instead of `LOW_LATENCY`. The old
+  default opened a per-viewer real-time session for every member of an audience that
+  did not need one; real-time is now opt-in via `createMonitor()`.
+- **Fixed: scalable playback could never have worked.** The manifest URL was built as
+  `{gateway}/hls/{id}/index.m3u8`, a prefix the gateway neither routes nor
+  allowlists, and it carried no token — so the request could only return 404 or 401.
+  A test had pinned that broken URL as correct.
+- **Fixed: publishing and sub-second playback could never have worked.** WHIP/WHEP
+  sent the token only as an `Authorization: Bearer` header, which the gateway's auth
+  hook does not read; it reads `?token=` from the query.
+- `Mebius.connect(token, deliveries)` accepts the ordered route list your backend
+  receives with the token. Forwarding it is what puts a viewer on the nearest edge;
+  without it every viewer is served from Mebius origin, which on mobile is a
+  per-viewer bill rather than none. `MebiusDelivery.isResolvable` refuses any path
+  that is not plainly gateway-relative, because a delivery path is untrusted response
+  data and the token is a bearer credential.
+- Playback walks that list with an 8-second first-frame budget per route. A route
+  that opens is not yet a route that plays: an edge with no ingest answers 200 with an
+  empty stream, and a real-time connection reports itself connected while zero frames
+  arrive. Neither raises an error, so playback previously sat on a black frame.
+- New `createMonitor()` for watching the other side of a co-broadcast.
+- The sample app compiles again — it imported `androidx.compose.foundation.layout.weight`,
+  which resolves to an internal declaration. Broken before this release, unrelated to it.
 
 #### 0.1.0
 - Initial release: `init`/`connect`, broadcaster (start/stop/switchCamera/mic/camera), player (low-latency & scale modes, volume), `MebiusVideoView`, listener + Flow event APIs.
