@@ -99,8 +99,15 @@ Mebius.init(
     gateway = "https://gateway.mebius.io", // your Mebius signaling endpoint
 )
 
-// After fetching a token from YOUR backend:
-val client = Mebius.connect(token = backendIssuedToken)
+// After fetching a token from YOUR backend. The same response carries a
+// `deliveries` array — pass it through as-is. Mebius orders it and picks from it.
+// Without it playback still works, but every viewer is served from Mebius origin
+// instead of the nearest edge, which on mobile is billed per viewer.
+val body = JSONObject(responseText)
+val client = Mebius.connect(
+    token = body.getString("token"),
+    deliveries = MebiusDelivery.fromTokenResponse(body),
+)
 
 client.listener = object : MebiusClientListener {
     override fun onConnected() { /* ready */ }
@@ -139,7 +146,7 @@ broadcaster.stop()
 ### Watch
 
 ```kotlin
-val player = client.createPlayer(PlaybackMode.LOW_LATENCY) // or PlaybackMode.SCALE
+val player = client.createPlayer() // PlaybackMode.AUTO
 
 player.listener = object : MebiusPlayerListener {
     override fun onPlaying() {}
@@ -153,9 +160,20 @@ player.setVolume(0.5f) // 0f..1f
 player.stop()
 ```
 
-> Use `PlaybackMode.LOW_LATENCY` for interactive, real-time viewing and
-> `PlaybackMode.SCALE` for large audiences. The SDK picks the optimal delivery
-> path for you automatically.
+| Mode | When to use |
+| --- | --- |
+| `AUTO` (default) | Recommended. Mebius picks per viewer and re-picks if a route stops delivering video. |
+| `LOW_LATENCY` | Two-way interaction (co-broadcast), sub-second delay. Costs one per-viewer session, so it is not for a plain audience. |
+| `SCALE` | Largest audiences and unstable networks. |
+
+Whatever the mode, playback walks an ordered route list with an 8-second budget per
+route. A route that opens is not yet a route that plays: an edge with no ingest
+answers 200 with an empty stream, and a real-time connection reports `connected`
+while zero frames arrive. Either case used to leave the viewer on a black frame
+with no error to react to; now the player moves on by itself.
+
+For watching the other side of a co-broadcast, use `client.createMonitor()` — same
+API as a player, different delay budget.
 
 ---
 
@@ -186,7 +204,7 @@ Wrap `MebiusVideoView` with `AndroidView`:
 @Composable
 fun PlayerView(client: MebiusClient, streamId: String) {
     var view by remember { mutableStateOf<MebiusVideoView?>(null) }
-    val player = remember { client.createPlayer(PlaybackMode.LOW_LATENCY) }
+    val player = remember { client.createPlayer() }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -220,7 +238,9 @@ A full Compose sample (broadcast + watch) lives in the [`sample/`](sample) modul
 | `Mebius` | `init` | `fun init(context: Context, appId: String, gateway: String)` |
 | `Mebius` | `connect` | `fun connect(token: String): MebiusClient` |
 | `MebiusClient` | `createBroadcaster` | `fun createBroadcaster(video: Boolean = true, audio: Boolean = true): MebiusBroadcaster` |
-| `MebiusClient` | `createPlayer` | `fun createPlayer(mode: PlaybackMode): MebiusPlayer` |
+| `MebiusClient` | `createPlayer` | `fun createPlayer(mode: PlaybackMode = PlaybackMode.AUTO): MebiusPlayer` |
+| `MebiusClient` | `createMonitor` | `fun createMonitor(): MebiusPlayer` |
+| `MebiusDelivery` | `fromTokenResponse` | `fun fromTokenResponse(body: JSONObject?): List<MebiusDelivery>` |
 | `MebiusClient` | `updateToken` | `fun updateToken(newToken: String)` |
 | `MebiusClient` | `disconnect` | `fun disconnect()` |
 | `MebiusBroadcaster` | `attachPreview` | `fun attachPreview(view: MebiusVideoView)` |

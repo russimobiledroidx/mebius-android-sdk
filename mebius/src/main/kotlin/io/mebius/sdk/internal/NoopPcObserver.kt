@@ -12,14 +12,27 @@ import org.webrtc.RtpReceiver
  */
 internal open class NoopPcObserver : PeerConnection.Observer {
     override fun onSignalingChange(state: PeerConnection.SignalingState?) = Unit
+
     override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) = Unit
+
     override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
+
     override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) = Unit
+
     override fun onIceCandidate(candidate: IceCandidate?) = Unit
+
     override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) = Unit
+
     override fun onAddStream(stream: MediaStream?) = Unit
+
     override fun onRemoveStream(stream: MediaStream?) = Unit
+
     override fun onDataChannel(channel: DataChannel?) = Unit
+
     override fun onRenegotiationNeeded() = Unit
-    override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) = Unit
+
+    override fun onAddTrack(
+        receiver: RtpReceiver?,
+        streams: Array<out MediaStream>?,
+    ) = Unit
 }

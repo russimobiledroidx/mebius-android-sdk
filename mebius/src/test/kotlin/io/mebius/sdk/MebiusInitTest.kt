@@ -11,7 +11,6 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(AndroidJUnit4::class)
 class MebiusInitTest {
-
     @After
     fun tearDown() {
         Mebius.reset()
@@ -46,9 +45,10 @@ class MebiusInitTest {
         Mebius.init(RuntimeEnvironment.getApplication(), appId = "app", gateway = "https://gw.mebius.io")
         val client = Mebius.connect("a.b.c")
         client.disconnect()
-        val error = assertThrows(MebiusError.NotConnected::class.java) {
-            client.createPlayer(PlaybackMode.SCALE)
-        }
+        val error =
+            assertThrows(MebiusError.NotConnected::class.java) {
+                client.createPlayer(PlaybackMode.SCALE)
+            }
         assertTrue(error.code == MebiusError.Code.NOT_CONNECTED)
     }
 }

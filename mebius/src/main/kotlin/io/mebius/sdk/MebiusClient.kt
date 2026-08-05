@@ -22,6 +22,7 @@ public class MebiusClient internal constructor(
     context: Context,
     private val config: GatewayConfig,
     token: String,
+    private val deliveries: List<MebiusDelivery> = emptyList(),
 ) {
     private val appContext = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
@@ -49,7 +50,9 @@ public class MebiusClient internal constructor(
         public data object Disconnected : ClientEvent
 
         /** An error occurred. */
-        public data class Error(val error: MebiusError) : ClientEvent
+        public data class Error(
+            val error: MebiusError,
+        ) : ClientEvent
     }
 
     /** True while this client is connected. */
@@ -94,10 +97,21 @@ public class MebiusClient internal constructor(
      *
      * @param mode the [PlaybackMode] (latency vs. scalability trade-off).
      */
-    public fun createPlayer(mode: PlaybackMode): MebiusPlayer {
+    @JvmOverloads
+    public fun createPlayer(mode: PlaybackMode = PlaybackMode.AUTO): MebiusPlayer {
         requireConnected()
-        return MebiusPlayer(appContext, config, tokenProvider, mode)
+        return MebiusPlayer(appContext, config, tokenProvider, mode, deliveries)
     }
+
+    /**
+     * Creates a player for a stream you are interacting WITH — the other side of a
+     * co-broadcast — where a second of delay makes the interaction feel broken.
+     *
+     * Same API as a player; only the delay budget differs. It starts on the
+     * real-time route and falls back by itself if that route sends no video, which
+     * is the part apps used to hand-roll and get wrong in front of a live audience.
+     */
+    public fun createMonitor(): MebiusPlayer = createPlayer(PlaybackMode.LOW_LATENCY)
 
     /** Disconnects this client and notifies listeners. */
     public fun disconnect() {

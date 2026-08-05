@@ -12,8 +12,11 @@ internal class CreateSdpObserver(
     private val onFailure: (String) -> Unit,
 ) : SdpObserver {
     override fun onCreateSuccess(sdp: SessionDescription) = onSuccess(sdp)
+
     override fun onCreateFailure(error: String?) = onFailure(error ?: "createSdp failed")
+
     override fun onSetSuccess() = Unit
+
     override fun onSetFailure(error: String?) = Unit
 }
 
@@ -22,7 +25,10 @@ internal class SetSdpObserver(
     private val onFailure: (String) -> Unit,
 ) : SdpObserver {
     override fun onCreateSuccess(sdp: SessionDescription?) = Unit
+
     override fun onCreateFailure(error: String?) = Unit
+
     override fun onSetSuccess() = onSuccess()
+
     override fun onSetFailure(error: String?) = onFailure(error ?: "setSdp failed")
 }

@@ -16,7 +16,6 @@ import org.webrtc.PeerConnectionFactory
  * be referenced from the public surface.
  */
 internal object WebRtcCore {
-
     @Volatile
     private var factory: PeerConnectionFactory? = null
 
@@ -35,14 +34,18 @@ internal object WebRtcCore {
                 .createInitializationOptions(),
         )
 
-        val encoderFactory = DefaultVideoEncoderFactory(
-            eglBase.eglBaseContext,
-            /* enableIntelVp8Encoder = */ true,
-            /* enableH264HighProfile = */ true,
-        )
+        val encoderFactory =
+            DefaultVideoEncoderFactory(
+                eglBase.eglBaseContext,
+                // enableIntelVp8Encoder =
+                true,
+                // enableH264HighProfile =
+                true,
+            )
         val decoderFactory = DefaultVideoDecoderFactory(eglBase.eglBaseContext)
 
-        return PeerConnectionFactory.builder()
+        return PeerConnectionFactory
+            .builder()
             .setVideoEncoderFactory(encoderFactory)
             .setVideoDecoderFactory(decoderFactory)
             .createPeerConnectionFactory()

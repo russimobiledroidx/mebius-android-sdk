@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.mebius.sdk.Mebius
+import io.mebius.sdk.MebiusDelivery
 import io.mebius.sdk.MebiusClient
 
 /**
@@ -46,7 +47,13 @@ class MainActivity : ComponentActivity() {
 
         // 2) Connect with a SHORT-LIVED token fetched from YOUR backend.
         //    The app secret never lives on the device. Replace with a real token.
-        client = Mebius.connect(token = "REPLACE_WITH_BACKEND_ISSUED_TOKEN")
+        // Your backend returns `token` AND `deliveries` from one call; pass both.
+        // Dropping `deliveries` still plays, but serves every viewer from Mebius
+        // origin instead of the nearest edge — on mobile that is billed per viewer.
+        client = Mebius.connect(
+            token = "REPLACE_WITH_BACKEND_ISSUED_TOKEN",
+            deliveries = MebiusDelivery.fromTokenResponse(null), // REPLACE with your parsed body
+        )
 
         setContent {
             MaterialTheme {
