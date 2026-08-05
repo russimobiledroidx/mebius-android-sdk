@@ -52,16 +52,22 @@ public class MebiusBroadcaster internal constructor(
     /** Events emitted by a [MebiusBroadcaster]. */
     public sealed interface BroadcasterEvent {
         /** Broadcasting started for [streamId]. */
-        public data class Started(val streamId: String) : BroadcasterEvent
+        public data class Started(
+            val streamId: String,
+        ) : BroadcasterEvent
 
         /** Broadcasting stopped. */
         public data object Stopped : BroadcasterEvent
 
         /** Periodic statistics. */
-        public data class Stats(val stats: MebiusBroadcastStats) : BroadcasterEvent
+        public data class Stats(
+            val stats: MebiusBroadcastStats,
+        ) : BroadcasterEvent
 
         /** An error occurred. */
-        public data class Error(val error: MebiusError) : BroadcasterEvent
+        public data class Error(
+            val error: MebiusError,
+        ) : BroadcasterEvent
     }
 
     /**
@@ -86,7 +92,12 @@ public class MebiusBroadcaster internal constructor(
                 emit(BroadcasterEvent.Started(streamId)) { it.onStarted(streamId) }
             } catch (e: MebiusError) {
                 emit(BroadcasterEvent.Error(e)) { it.onError(e) }
-            } catch (e: Exception) {
+            } catch (
+                // Deliberately broad: an SDK converts any failure into an event rather
+                // than crashing the host app. Narrowing this would let an unexpected type
+                // escape into the integrator's code.
+                @Suppress("TooGenericExceptionCaught") e: Exception,
+            ) {
                 val err = MebiusError.Unknown(cause = e)
                 emit(BroadcasterEvent.Error(err)) { it.onError(err) }
             }
@@ -126,7 +137,10 @@ public class MebiusBroadcaster internal constructor(
         worker.shutdown()
     }
 
-    private fun emit(event: BroadcasterEvent, toListener: (MebiusBroadcasterListener) -> Unit) {
+    private fun emit(
+        event: BroadcasterEvent,
+        toListener: (MebiusBroadcasterListener) -> Unit,
+    ) {
         _events.tryEmit(event)
         main.post { listener?.let(toListener) }
     }

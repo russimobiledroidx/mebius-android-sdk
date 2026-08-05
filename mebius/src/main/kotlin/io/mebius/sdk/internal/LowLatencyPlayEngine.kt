@@ -21,45 +21,52 @@ internal class LowLatencyPlayEngine(
     private val signaling: SignalingClient,
     private val mainPost: (() -> Unit) -> Unit,
 ) : PlayEngine {
-
     private val factory = WebRtcCore.peerConnectionFactory(context)
     private var peerConnection: PeerConnection? = null
     private var remoteVideoTrack: VideoTrack? = null
     private var audioEnabled = true
     private var volume = 1.0
 
-    override fun play(streamId: String, view: MebiusVideoView, callbacks: PlayEngine.Callbacks) {
+    override fun play(
+        streamId: String,
+        view: MebiusVideoView,
+        callbacks: PlayEngine.Callbacks,
+    ) {
         try {
-            val pc = factory.createPeerConnection(
-                PeerConnection.RTCConfiguration(emptyList()).apply {
-                    sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-                },
-                object : NoopPcObserver() {
-                    override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out org.webrtc.MediaStream>?) {
-                        val track = receiver?.track() ?: return
-                        if (track.kind() == MediaStreamTrack.VIDEO_TRACK_KIND && track is VideoTrack) {
-                            remoteVideoTrack = track
-                            mainPost {
-                                view.attach(track)
-                                callbacks.onPlaying()
+            val pc =
+                factory.createPeerConnection(
+                    PeerConnection.RTCConfiguration(emptyList()).apply {
+                        sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+                    },
+                    object : NoopPcObserver() {
+                        override fun onAddTrack(
+                            receiver: RtpReceiver?,
+                            streams: Array<out org.webrtc.MediaStream>?,
+                        ) {
+                            val track = receiver?.track() ?: return
+                            if (track.kind() == MediaStreamTrack.VIDEO_TRACK_KIND && track is VideoTrack) {
+                                remoteVideoTrack = track
+                                mainPost {
+                                    view.attach(track)
+                                    callbacks.onPlaying()
+                                }
                             }
                         }
-                    }
 
-                    override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
-                        when (state) {
-                            PeerConnection.IceConnectionState.CHECKING ->
-                                mainPost { callbacks.onBuffering() }
-                            PeerConnection.IceConnectionState.DISCONNECTED,
-                            PeerConnection.IceConnectionState.CLOSED,
-                            -> mainPost { callbacks.onEnded() }
-                            PeerConnection.IceConnectionState.FAILED ->
-                                mainPost { callbacks.onError(MebiusError.ConnectionFailed()) }
-                            else -> Unit
+                        override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
+                            when (state) {
+                                PeerConnection.IceConnectionState.CHECKING ->
+                                    mainPost { callbacks.onBuffering() }
+                                PeerConnection.IceConnectionState.DISCONNECTED,
+                                PeerConnection.IceConnectionState.CLOSED,
+                                -> mainPost { callbacks.onEnded() }
+                                PeerConnection.IceConnectionState.FAILED ->
+                                    mainPost { callbacks.onError(MebiusError.ConnectionFailed()) }
+                                else -> Unit
+                            }
                         }
-                    }
-                },
-            ) ?: throw MebiusError.ConnectionFailed("Could not create a media session.")
+                    },
+                ) ?: throw MebiusError.ConnectionFailed("Could not create a media session.")
             peerConnection = pc
 
             // We only receive in WHEP playback.
@@ -82,7 +89,12 @@ internal class LowLatencyPlayEngine(
             setRemoteBlocking(pc, SessionDescription(SessionDescription.Type.ANSWER, answer))
         } catch (e: MebiusError) {
             mainPost { callbacks.onError(e) }
-        } catch (e: Exception) {
+        } catch (
+            // Deliberately broad: an SDK converts any failure into an event rather
+            // than crashing the host app. Narrowing this would let an unexpected type
+            // escape into the integrator's code.
+            @Suppress("TooGenericExceptionCaught") e: Exception,
+        ) {
             mainPost { callbacks.onError(MebiusError.ConnectionFailed(cause = e)) }
         }
     }
@@ -111,8 +123,14 @@ internal class LowLatencyPlayEngine(
         var failure: String? = null
         pc.createOffer(
             CreateSdpObserver(
-                onSuccess = { result = it; latch.countDown() },
-                onFailure = { failure = it; latch.countDown() },
+                onSuccess = {
+                    result = it
+                    latch.countDown()
+                },
+                onFailure = {
+                    failure = it
+                    latch.countDown()
+                },
             ),
             MediaConstraints(),
         )
@@ -120,22 +138,34 @@ internal class LowLatencyPlayEngine(
         return result ?: throw MebiusError.ConnectionFailed(failure ?: "Failed to create offer.")
     }
 
-    private fun setLocalBlocking(pc: PeerConnection, sdp: SessionDescription) {
+    private fun setLocalBlocking(
+        pc: PeerConnection,
+        sdp: SessionDescription,
+    ) {
         val latch = CountDownLatch(1)
         var failure: String? = null
         pc.setLocalDescription(
-            SetSdpObserver(onSuccess = { latch.countDown() }, onFailure = { failure = it; latch.countDown() }),
+            SetSdpObserver(onSuccess = { latch.countDown() }, onFailure = {
+                failure = it
+                latch.countDown()
+            }),
             sdp,
         )
         await(latch)
         failure?.let { throw MebiusError.ConnectionFailed(it) }
     }
 
-    private fun setRemoteBlocking(pc: PeerConnection, sdp: SessionDescription) {
+    private fun setRemoteBlocking(
+        pc: PeerConnection,
+        sdp: SessionDescription,
+    ) {
         val latch = CountDownLatch(1)
         var failure: String? = null
         pc.setRemoteDescription(
-            SetSdpObserver(onSuccess = { latch.countDown() }, onFailure = { failure = it; latch.countDown() }),
+            SetSdpObserver(onSuccess = { latch.countDown() }, onFailure = {
+                failure = it
+                latch.countDown()
+            }),
             sdp,
         )
         await(latch)

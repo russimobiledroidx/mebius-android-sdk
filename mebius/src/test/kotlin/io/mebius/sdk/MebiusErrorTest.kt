@@ -5,7 +5,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MebiusErrorTest {
-
     @Test
     fun `error codes map to expected subclasses`() {
         assertEquals(MebiusError.Code.TOKEN_EXPIRED, MebiusError.TokenExpired().code)

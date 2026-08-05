@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -30,7 +29,7 @@ import io.mebius.sdk.PlaybackMode
  */
 @Composable
 fun WatchScreen(client: MebiusClient, onBack: () -> Unit) {
-    var mode by remember { mutableStateOf(PlaybackMode.LOW_LATENCY) }
+    var mode by remember { mutableStateOf(PlaybackMode.AUTO) }
     var player by remember { mutableStateOf<MebiusPlayer?>(null) }
     var videoView by remember { mutableStateOf<MebiusVideoView?>(null) }
     var playing by remember { mutableStateOf(false) }
@@ -67,9 +66,22 @@ fun WatchScreen(client: MebiusClient, onBack: () -> Unit) {
             Button(
                 enabled = !playing,
                 onClick = {
-                    mode = if (mode == PlaybackMode.LOW_LATENCY) PlaybackMode.SCALE else PlaybackMode.LOW_LATENCY
+                    // AUTO -> LOW_LATENCY -> SCALE -> AUTO
+                    mode = when (mode) {
+                        PlaybackMode.AUTO -> PlaybackMode.LOW_LATENCY
+                        PlaybackMode.LOW_LATENCY -> PlaybackMode.SCALE
+                        PlaybackMode.SCALE -> PlaybackMode.AUTO
+                    }
                 },
-            ) { Text(if (mode == PlaybackMode.LOW_LATENCY) "Mode: Low latency" else "Mode: Scale") }
+            ) {
+                Text(
+                    when (mode) {
+                        PlaybackMode.AUTO -> "Mode: Auto"
+                        PlaybackMode.LOW_LATENCY -> "Mode: Low latency"
+                        PlaybackMode.SCALE -> "Mode: Scale"
+                    },
+                )
+            }
 
             Button(onClick = onBack) { Text("Back") }
         }

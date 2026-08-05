@@ -7,7 +7,17 @@ package io.mebius.sdk
  * appropriate transport internally; you never deal with protocol details.
  */
 public enum class PlaybackMode {
-    /** Lowest possible latency, best for interactive/real-time viewing. */
+    /**
+     * Let Mebius choose per viewer, and fall back on its own if the chosen route
+     * stops delivering frames. The recommended default.
+     */
+    AUTO,
+
+    /**
+     * Lowest possible latency, for interactive/real-time viewing. Costs one
+     * per-viewer session on Mebius, so it is not the right choice for a plain
+     * audience — use [AUTO] for that, or `createMonitor()` for a co-broadcast.
+     */
     LOW_LATENCY,
 
     /** Optimized for large audiences; slightly higher latency, highly scalable. */

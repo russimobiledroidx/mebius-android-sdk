@@ -16,7 +16,6 @@ public sealed class MebiusError(
     override val message: String,
     override val cause: Throwable? = null,
 ) : Exception(message, cause) {
-
     /**
      * Stable error codes. These values are part of the public contract and are
      * identical across every Mebius client SDK (Kotlin/Swift/Dart/TS).

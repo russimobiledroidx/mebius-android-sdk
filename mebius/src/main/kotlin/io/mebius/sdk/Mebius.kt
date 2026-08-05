@@ -21,7 +21,6 @@ import io.mebius.sdk.internal.GatewayConfig
  * secret never reaches the device.
  */
 public object Mebius {
-
     @Volatile
     private var config: GatewayConfig? = null
 
@@ -41,7 +40,11 @@ public object Mebius {
      * @throws IllegalArgumentException if [appId] or [gateway] is blank.
      */
     @JvmStatic
-    public fun init(context: Context, appId: String, gateway: String) {
+    public fun init(
+        context: Context,
+        appId: String,
+        gateway: String,
+    ) {
         require(appId.isNotBlank()) { "appId must not be blank." }
         require(gateway.isNotBlank()) { "gateway must not be blank." }
         appContext = context.applicationContext
@@ -54,17 +57,25 @@ public object Mebius {
      *
      * @param token a short-lived JWT minted by your backend. Never embed your
      *  application secret in the app.
+     * @param deliveries the route list your backend returned with the token. Pass it
+     *  through as-is; Mebius orders it and picks from it. Optional, but without it
+     *  every viewer is served from Mebius origin instead of the nearest edge — on
+     *  mobile that is billed per viewer.
      * @return a connected [MebiusClient].
      * @throws IllegalStateException if [init] has not been called.
      * @throws IllegalArgumentException if [token] is blank.
      */
     @JvmStatic
-    public fun connect(token: String): MebiusClient {
+    @JvmOverloads
+    public fun connect(
+        token: String,
+        deliveries: List<MebiusDelivery> = emptyList(),
+    ): MebiusClient {
         val cfg = checkNotNull(config) { "Mebius.init(...) must be called before connect()." }
         val ctx = checkNotNull(appContext) { "Mebius.init(...) must be called before connect()." }
         require(token.isNotBlank()) { "token must not be blank." }
 
-        return MebiusClient(ctx, cfg, token).also { it.markConnected() }
+        return MebiusClient(ctx, cfg, token, deliveries).also { it.markConnected() }
     }
 
     /** Whether [init] has been called. */

@@ -27,7 +27,6 @@ internal class PublishEngine(
     private val context: Context,
     private val signaling: SignalingClient,
 ) {
-
     private val factory = WebRtcCore.peerConnectionFactory(context)
 
     private var peerConnection: PeerConnection? = null
@@ -39,11 +38,12 @@ internal class PublishEngine(
     private var surfaceHelper: SurfaceTextureHelper? = null
 
     private var usingFrontCamera = true
-    private val enumerator: CameraEnumerator = if (Camera2Enumerator.isSupported(context)) {
-        Camera2Enumerator(context)
-    } else {
-        Camera1Enumerator(false)
-    }
+    private val enumerator: CameraEnumerator =
+        if (Camera2Enumerator.isSupported(context)) {
+            Camera2Enumerator(context)
+        } else {
+            Camera1Enumerator(false)
+        }
 
     /** The local video track, exposed so the preview view can render it. */
     val previewTrack: VideoTrack? get() = localVideoTrack
@@ -54,15 +54,20 @@ internal class PublishEngine(
      *
      * @throws MebiusError on failure.
      */
-    fun start(streamId: String, enableVideo: Boolean, enableAudio: Boolean) {
-        val pc = factory.createPeerConnection(
-            PeerConnection.RTCConfiguration(emptyList()).apply {
-                sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-            },
-            object : NoopPcObserver() {
-                override fun onIceConnectionChange(state: IceConnectionState?) = Unit
-            },
-        ) ?: throw MebiusError.ConnectionFailed("Could not create a media session.")
+    fun start(
+        streamId: String,
+        enableVideo: Boolean,
+        enableAudio: Boolean,
+    ) {
+        val pc =
+            factory.createPeerConnection(
+                PeerConnection.RTCConfiguration(emptyList()).apply {
+                    sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+                },
+                object : NoopPcObserver() {
+                    override fun onIceConnectionChange(state: IceConnectionState?) = Unit
+                },
+            ) ?: throw MebiusError.ConnectionFailed("Could not create a media session.")
         peerConnection = pc
 
         if (enableVideo) {
@@ -88,8 +93,9 @@ internal class PublishEngine(
     }
 
     private fun createVideoTrack(): VideoTrack {
-        val capturer = createCameraCapturer()
-            ?: throw MebiusError.PermissionDenied("No camera is available.")
+        val capturer =
+            createCameraCapturer()
+                ?: throw MebiusError.PermissionDenied("No camera is available.")
         videoCapturer = capturer
 
         val helper = SurfaceTextureHelper.create("MebiusCapture", WebRtcCore.eglBase.eglBaseContext)
@@ -124,13 +130,15 @@ internal class PublishEngine(
     }
 
     fun switchCamera() {
-        videoCapturer?.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
-            override fun onCameraSwitchDone(isFront: Boolean) {
-                usingFrontCamera = isFront
-            }
+        videoCapturer?.switchCamera(
+            object : CameraVideoCapturer.CameraSwitchHandler {
+                override fun onCameraSwitchDone(isFront: Boolean) {
+                    usingFrontCamera = isFront
+                }
 
-            override fun onCameraSwitchError(error: String?) = Unit
-        })
+                override fun onCameraSwitchError(error: String?) = Unit
+            },
+        )
     }
 
     fun setMicEnabled(enabled: Boolean) {
@@ -184,8 +192,14 @@ internal class PublishEngine(
         var failure: String? = null
         pc.createOffer(
             CreateSdpObserver(
-                onSuccess = { result = it; latch.countDown() },
-                onFailure = { failure = it; latch.countDown() },
+                onSuccess = {
+                    result = it
+                    latch.countDown()
+                },
+                onFailure = {
+                    failure = it
+                    latch.countDown()
+                },
             ),
             MediaConstraints(),
         )
@@ -197,7 +211,10 @@ internal class PublishEngine(
         val latch = CountDownLatch(1)
         var failure: String? = null
         setLocalDescription(
-            SetSdpObserver(onSuccess = { latch.countDown() }, onFailure = { failure = it; latch.countDown() }),
+            SetSdpObserver(onSuccess = { latch.countDown() }, onFailure = {
+                failure = it
+                latch.countDown()
+            }),
             sdp,
         )
         awaitOrThrow(latch)
@@ -208,7 +225,10 @@ internal class PublishEngine(
         val latch = CountDownLatch(1)
         var failure: String? = null
         setRemoteDescription(
-            SetSdpObserver(onSuccess = { latch.countDown() }, onFailure = { failure = it; latch.countDown() }),
+            SetSdpObserver(onSuccess = { latch.countDown() }, onFailure = {
+                failure = it
+                latch.countDown()
+            }),
             sdp,
         )
         awaitOrThrow(latch)
