@@ -32,7 +32,16 @@ public class MebiusPlayer internal constructor(
     context: Context,
     config: GatewayConfig,
     tokenProvider: () -> String,
-    private val mode: PlaybackMode,
+    /**
+     * The playback mode this player was created with.
+     *
+     * Public because an app has to be able to show a viewer which route it is on, and
+     * because the other Mebius SDKs expose it (`player.mode` on Flutter, `mode` on
+     * iOS). It was `private` here through 0.2.0, so Android was the one platform where
+     * an integrator could not read it back — invisible in this repo, because nothing
+     * in it consumed the published artifact.
+     */
+    public val mode: PlaybackMode,
     deliveries: List<MebiusDelivery> = emptyList(),
 ) {
     private val appContext = context.applicationContext

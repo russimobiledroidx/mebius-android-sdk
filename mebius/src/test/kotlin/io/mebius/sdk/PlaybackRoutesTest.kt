@@ -1,7 +1,9 @@
 package io.mebius.sdk
 
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.mebius.sdk.internal.FIRST_FRAME_TIMEOUT_MS
+import io.mebius.sdk.internal.GatewayConfig
 import io.mebius.sdk.internal.buildRoutes
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
@@ -108,6 +110,24 @@ class PlaybackRoutesTest {
     fun `a missing deliveries field parses to an empty list`() {
         assertTrue(MebiusDelivery.fromJson(null).isEmpty())
         assertTrue(MebiusDelivery.fromTokenResponse(null).isEmpty())
+    }
+
+    /**
+     * `mode` must be readable by an integrator, as it is on Flutter and iOS. It was
+     * private through 0.2.0; the compiler error only appeared when a project outside
+     * this repo consumed the published aar, which is why no test here caught it.
+     */
+    @Test
+    fun `the mode a player was created with is readable`() {
+        val cfg = GatewayConfig(appId = "app", gateway = "https://gw.mebius.io")
+        val player =
+            MebiusPlayer(
+                context = ApplicationProvider.getApplicationContext(),
+                config = cfg,
+                tokenProvider = { "tok" },
+                mode = PlaybackMode.SCALE,
+            )
+        assertEquals(PlaybackMode.SCALE, player.mode)
     }
 
     @Test
