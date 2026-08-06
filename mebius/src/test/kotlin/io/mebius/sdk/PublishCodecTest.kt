@@ -11,8 +11,7 @@ import org.webrtc.RtpCapabilities
  * device shows a healthy preview.
  */
 class PublishCodecTest {
-    private fun codec(mimeType: String): RtpCapabilities.CodecCapability =
-        RtpCapabilities.CodecCapability().also { it.mimeType = mimeType }
+    private fun codec(mimeType: String): RtpCapabilities.CodecCapability = RtpCapabilities.CodecCapability().also { it.mimeType = mimeType }
 
     @org.junit.Test
     fun `moves H264 to the front and keeps the rest in order`() {

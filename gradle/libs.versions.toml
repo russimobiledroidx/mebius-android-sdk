@@ -19,7 +19,7 @@ androidxTestExtJunit = "1.2.1"
 dokka = "1.9.20"
 ktlint = "12.1.2"
 detekt = "1.23.7"
-mavenPublish = "0.30.0"
+mavenPublish = "0.34.0"
 
 [libraries]
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
