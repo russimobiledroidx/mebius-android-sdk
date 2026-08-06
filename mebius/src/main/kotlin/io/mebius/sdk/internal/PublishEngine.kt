@@ -9,9 +9,9 @@ import org.webrtc.Camera2Enumerator
 import org.webrtc.CameraEnumerator
 import org.webrtc.CameraVideoCapturer
 import org.webrtc.MediaConstraints
+import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnection.IceConnectionState
-import org.webrtc.MediaStreamTrack
 import org.webrtc.RtpCapabilities
 import org.webrtc.RtpTransceiver
 import org.webrtc.SessionDescription
@@ -95,7 +95,6 @@ internal class PublishEngine(
         val answerSdp = signaling.exchangeSdp(streamId, SignalingClient.Direction.PUBLISH, offer.description)
         pc.setRemoteDescriptionBlocking(SessionDescription(SessionDescription.Type.ANSWER, answerSdp))
     }
-
 
     /**
      * Offers H264 ahead of VP8 for the outgoing video track.

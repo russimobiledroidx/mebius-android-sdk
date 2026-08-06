@@ -1,4 +1,3 @@
-import com.vanniktech.maven.publish.SonatypeHost
 
 plugins {
     alias(libs.plugins.android.library)
@@ -108,7 +107,11 @@ detekt {
 }
 
 mavenPublishing {
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL, automaticRelease = false)
+    // No SonatypeHost argument: OSSRH is gone and the plugin publishes to the
+    // Central Portal unconditionally from 0.32 on, where passing a host became
+    // deprecated and then removed. Releases are still staged, not automatic —
+    // the last step stays a human clicking publish in the Portal UI.
+    publishToMavenCentral()
     // Sign ONLY when a signing key is configured (required for Maven Central,
     // not for local installs / CI dry-runs). Provide a key via
     // ORG_GRADLE_PROJECT_signingInMemoryKey or signing.* gradle properties.
