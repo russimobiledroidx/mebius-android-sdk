@@ -11,6 +11,8 @@ import org.webrtc.CameraVideoCapturer
 import org.webrtc.MediaConstraints
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnection.IceConnectionState
+import org.webrtc.MediaStreamTrack
+import org.webrtc.RtpCapabilities
 import org.webrtc.RtpTransceiver
 import org.webrtc.SessionDescription
 import org.webrtc.SurfaceTextureHelper
@@ -84,12 +86,45 @@ internal class PublishEngine(
         // We publish: send-only transceivers.
         pc.transceivers.forEach { it.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY }
 
+        preferH264(pc)
+
         val offer = createOffer(pc)
         pc.setLocalDescriptionBlocking(offer)
 
         // WHIP exchange.
         val answerSdp = signaling.exchangeSdp(streamId, SignalingClient.Direction.PUBLISH, offer.description)
         pc.setRemoteDescriptionBlocking(SessionDescription(SessionDescription.Type.ANSWER, answerSdp))
+    }
+
+
+    /**
+     * Offers H264 ahead of VP8 for the outgoing video track.
+     *
+     * libwebrtc negotiates VP8 by default, and VP8 is a dead end for every
+     * viewer who is not on the real-time route: the gateway's segment-based
+     * deliveries cannot carry it, so they drop the video track and the
+     * broadcast arrives as audio only. Nothing on the device reports this —
+     * preview, bitrate and connection state all look healthy.
+     *
+     * H264 is moved to the front rather than made exclusive: a device with no
+     * H264 encoder must still be able to broadcast, so the rest of the list
+     * follows in its original order. Every failure path leaves negotiation
+     * exactly as it was.
+     */
+    private fun preferH264(pc: PeerConnection) {
+        try {
+            val codecs = factory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
+            val ordered = orderH264First(codecs)
+            if (ordered.isEmpty()) return
+            pc.transceivers
+                .filter { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }
+                .forEach { it.setCodecPreferences(ordered) }
+        } catch (_: Throwable) {
+            // Older prebuilts without the method, or a device that rejects the
+            // list: the broadcast still goes out with the previous order. This
+            // SDK has no logger, and a codec preference is not worth inventing
+            // one for — the negotiated codec is visible in the SDP either way.
+        }
     }
 
     private fun createVideoTrack(): VideoTrack {
@@ -250,4 +285,14 @@ internal class PublishEngine(
         const val VIDEO_FPS = 30
         const val SDP_TIMEOUT_SEC = 15L
     }
+}
+
+/**
+ * H264 entries first, everything else in its original order. Split out from
+ * [PublishEngine] so the ordering itself is unit-testable without a device.
+ */
+internal fun orderH264First(codecs: List<RtpCapabilities.CodecCapability>): List<RtpCapabilities.CodecCapability> {
+    val (h264, rest) = codecs.partition { it.mimeType.equals("video/H264", ignoreCase = true) }
+    if (h264.isEmpty()) return emptyList()
+    return h264 + rest
 }
