@@ -3,6 +3,7 @@ package io.mebius.sdk
 import io.mebius.sdk.internal.FirstFrameSink
 import io.mockk.mockk
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.webrtc.VideoFrame
 import java.util.concurrent.CountDownLatch
@@ -79,7 +80,7 @@ class FirstFrameSinkTest {
             }.start()
         }
         start.countDown()
-        done.await(5, TimeUnit.SECONDS)
+        assertTrue(done.await(5, TimeUnit.SECONDS))
 
         assertEquals(1, fired.get())
     }
