@@ -24,6 +24,7 @@ internal class LowLatencyPlayEngine(
     private val factory = WebRtcCore.peerConnectionFactory(context)
     private var peerConnection: PeerConnection? = null
     private var remoteVideoTrack: VideoTrack? = null
+    private var firstFrameSink: FirstFrameSink? = null
     private var audioEnabled = true
     private var volume = 1.0
 
@@ -46,9 +47,16 @@ internal class LowLatencyPlayEngine(
                             val track = receiver?.track() ?: return
                             if (track.kind() == MediaStreamTrack.VIDEO_TRACK_KIND && track is VideoTrack) {
                                 remoteVideoTrack = track
+                                // onPlaying waits for a frame, not for the track. The track
+                                // is handed over as soon as the session is negotiated and
+                                // stays there whether or not media follows, so reporting it
+                                // as playback defused the player's first-frame watchdog in
+                                // exactly the case it exists for.
+                                val sink = FirstFrameSink { mainPost { callbacks.onPlaying() } }
+                                firstFrameSink = sink
                                 mainPost {
                                     view.attach(track)
-                                    callbacks.onPlaying()
+                                    track.addSink(sink)
                                 }
                             }
                         }
@@ -112,6 +120,11 @@ internal class LowLatencyPlayEngine(
     }
 
     override fun stop() {
+        // Remove the sink before the track goes: a sink left attached holds a
+        // native reference for the rest of the session, and a late frame would
+        // report playback for a route that has already been torn down.
+        firstFrameSink?.let { remoteVideoTrack?.removeSink(it) }
+        firstFrameSink = null
         remoteVideoTrack = null
         peerConnection?.dispose()
         peerConnection = null
