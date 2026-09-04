@@ -398,6 +398,34 @@ major version bump across **all** Mebius client SDKs simultaneously.
 
 ### Changelog
 
+#### 0.2.3
+- **Fixed: a viewer could get stuck on a black frame forever on the real-time
+  route.** `PlayerEvent.Playing` fired the moment libwebrtc handed over the video
+  track, which happens at negotiation and holds whether or not media follows. That
+  cancelled the player's 8-second first-frame watchdog in exactly the case the
+  watchdog exists for, so a route that connected and sent nothing reported success,
+  the player never advanced to the next route, and there was no error to react to.
+  `Playing` now means the decoder produced a frame.
+- Two consequences worth knowing. `LOW_LATENCY` can now legitimately fall off the
+  real-time route onto a buffered one — that is the fix working, not a regression.
+  And the 8-second budget now has to cover the first keyframe as well as
+  negotiation; a publisher that is slow to send one will fall back to HLS rather
+  than fail.
+- A sink is no longer leaked when playback stops. The field holding it was written
+  on libwebrtc's signaling thread and read on the main thread with no barrier, so
+  teardown could miss it — and `removeSink` is what frees the native wrapper.
+
+  Known limitation, unchanged: a broadcast with no camera — audio only — cannot be
+  played on the real-time route, on any Mebius SDK. Audio arrives, but the
+  first-frame budget is waiting for a picture that never comes. Publish with video
+  if you need the real-time route.
+
+#### 0.2.2
+- No entry was recorded at release. It published H264 preference on the publishing
+  transceiver: libwebrtc negotiated VP8, which the gateway's segment-based
+  deliveries cannot carry, so viewers off the real-time route received audio only
+  while the device showed a healthy preview.
+
 #### 0.2.1
 - `MebiusPlayer.mode` is now public. It was private through 0.2.0, so Android was
   the only Mebius SDK where an app could not read back which route a player was on
