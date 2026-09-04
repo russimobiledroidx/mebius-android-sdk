@@ -45,7 +45,7 @@ supported, and is the only way to resolve a tag Central does not have yet.
 
 ```kotlin
 dependencies {
-    implementation("io.mebius:mebius-android-sdk:0.2.2")
+    implementation("io.mebius:mebius-android-sdk:0.2.3")
 }
 ```
 
