@@ -4,124 +4,94 @@
 > `implementation("io.mebius:mebius-android-sdk:<version>")` from `mavenCentral()`.
 > No `mavenLocal()`, no manual jar.
 
-## TL;DR — push-button release (CI)
+Coordinates: `io.mebius:mebius-android-sdk`, published with the
+[Vanniktech Maven Publish plugin](https://vanniktech.github.io/gradle-maven-publish-plugin/)
+to the **Sonatype Central Portal**.
 
-The repo ships `.github/workflows/release.yml`. Once the one-time setup below is
-done, every release is just:
+## Where things stand
 
-```bash
-git tag v0.1.0 && git push origin v0.1.0      # CI publishes + releases to Central
+The one-time setup is **done**. The `io.mebius` namespace is verified, a GPG
+signing key exists (`Mebius Release Signing <dev@mebius.io>`, rsa4096, expires
+2028-08-05), and `0.2.2` is live on Central.
+
+What is *not* set up is CI: the repo has no Actions secrets, so
+`.github/workflows/release.yml` skips the upload and releases are pushed from a
+maintainer's machine. Both paths are below.
+
+## Release from your machine (how releases happen today)
+
+Credentials live in `~/.gradle/gradle.properties` — never in this repo:
+
+```properties
+mavenCentralUsername=<central-portal-token-username>
+mavenCentralPassword=<central-portal-token-password>
+signingInMemoryKey=<armored secret key, newlines written as \n>
+signingInMemoryKeyPassword=<key passphrase>
 ```
 
-That's the only recurring step. The one-time setup needs things ONLY the repo
-owner can do (a Sonatype account, domain verification, a signing key) — they
-cannot be automated from this machine.
+> The single most common failure is the key. `signingInMemoryKey` must be the
+> **whole** armored block on one line with real newlines escaped as `\n`. A key
+> that is truncated, unescaped, or empty fails as
+> `Could not read PGP secret key` at `:mebius:signMavenPublication`.
 
-## One-time setup (owner only — required before the first release)
-
-1. **Sonatype Central Portal account** — register at <https://central.sonatype.com/>.
-2. **Verify the `io.mebius` namespace.** Central makes you prove you own the
-   `mebius.io` domain: it shows a TXT record (e.g. `sonatype-...`) that you add to
-   the **DNS of mebius.io**, then click Verify.
-   - ⚠️ If you do NOT own `mebius.io`, you cannot publish under `io.mebius`. The
-     fallback is the auto-verified `io.github.russimobiledroidx` namespace — but
-     then the coordinate becomes `io.github.russimobiledroidx:mebius-android-sdk`
-     (change `GROUP` in `gradle.properties` accordingly).
-3. **Generate a GPG signing key** (Central requires signed artifacts):
-   ```bash
-   brew install gnupg               # if gpg is missing
-   gpg --quick-generate-key "Mebius <dev@mebius.io>" rsa4096 sign 2y
-   gpg --list-secret-keys --keyid-format=long          # note the KEY_ID
-   gpg --keyserver keyserver.ubuntu.com --send-keys <KEY_ID>   # publish public key
-   gpg --export-secret-keys --armor <KEY_ID>           # copy this whole block
-   ```
-4. **Create a Central Portal user token** (Account > Generate User Token) →
-   username + password.
-5. **Add 4 GitHub Actions secrets** (repo Settings > Secrets and variables > Actions):
-   - `MAVEN_CENTRAL_USERNAME` = token username
-   - `MAVEN_CENTRAL_PASSWORD` = token password
-   - `SIGNING_KEY` = the full armored secret-key block from step 3
-   - `SIGNING_KEY_PASSWORD` = that key's passphrase
-
-After this, `git push origin v<version>` triggers the global release. To publish
-from your own machine instead of CI, put the same values in
-`~/.gradle/gradle.properties` (see below) and run the gradle command directly.
-
----
-
-
-The library module (`:mebius`) publishes to Maven Central via the
-[Vanniktech Maven Publish plugin](https://vanniktech.github.io/gradle-maven-publish-plugin/),
-using the **Sonatype Central Portal** host. Coordinates: `io.mebius:mebius-android-sdk`.
-
-## One-time setup
-
-1. **Central Portal account & namespace.** Register at
-   <https://central.sonatype.com/> and verify ownership of the `io.mebius` namespace.
-
-2. **GPG signing key.** Generate and export an in-memory armored key:
-
-   ```bash
-   gpg --gen-key
-   gpg --export-secret-keys --armor <KEY_ID> > signing-key.asc
-   ```
-
-3. **Credentials.** Provide these as Gradle properties (in
-   `~/.gradle/gradle.properties`, **never** committed) or as environment variables.
-   These are placeholders — fill in real values at release time:
-
-   ```properties
-   # ~/.gradle/gradle.properties  (NOT in version control)
-   mavenCentralUsername=<central-portal-token-username>
-   mavenCentralPassword=<central-portal-token-password>
-
-   signingInMemoryKey=<contents of signing-key.asc, newlines as \n>
-   signingInMemoryKeyId=<short key id, optional>
-   signingInMemoryKeyPassword=<key passphrase>
-   ```
-
-   Or as environment variables for CI:
-
-   ```bash
-   export ORG_GRADLE_PROJECT_mavenCentralUsername=...
-   export ORG_GRADLE_PROJECT_mavenCentralPassword=...
-   export ORG_GRADLE_PROJECT_signingInMemoryKey=...
-   export ORG_GRADLE_PROJECT_signingInMemoryKeyPassword=...
-   ```
-
-## Set the version
-
-Edit `VERSION_NAME` in `gradle.properties` (drop any `-SNAPSHOT` suffix for releases).
-
-## Dry run (recommended before every release)
-
-Build and stage the artifacts locally without uploading anything:
+Then, per release:
 
 ```bash
-# Generate the full publication into the local Maven repo and inspect it.
-./gradlew :mebius:publishToMavenLocal
+# 1. Set the version.
+#    Edit VERSION_NAME in gradle.properties (no -SNAPSHOT suffix for a release).
 
-# Verify the produced files (aar, sources jar, javadoc jar, pom, signatures).
+# 2. Check what will be published, without uploading anything.
+./gradlew :mebius:publishToMavenLocal --no-configuration-cache
 ls ~/.m2/repository/io/mebius/mebius-android-sdk/<version>/
-```
+#    Expect .aar, -sources.jar, -javadoc.jar, .pom, and a matching .asc for each.
+#    No .asc files means signing was skipped — your key is not configured, and
+#    Central will reject the upload.
 
-You should see `.aar`, `-sources.jar`, `-javadoc.jar`, `.pom`, and matching `.asc`
-signature files.
-
-## Release
-
-```bash
-# Uploads to the Central Portal staging area. automaticRelease = false means you
-# must review and release manually in the Central Portal UI.
+# 3. Upload and release.
 ./gradlew :mebius:publishAndReleaseToMavenCentral --no-configuration-cache
-```
 
-After upload, log in to <https://central.sonatype.com/>, review the deployment,
-and publish. Propagation to Maven Central typically takes 10–30 minutes.
-
-## Tag the release
-
-```bash
+# 4. Tag it.
 git tag -a v<version> -m "Release <version>"
 git push origin v<version>
 ```
+
+Step 3 stages the deployment and releases it. Review it at
+<https://central.sonatype.com/> under Publishing Settings > Deployments if it
+does not go green on its own. Propagation to `repo1.maven.org` takes 10–30
+minutes after that.
+
+## Optional: let CI do it instead
+
+`.github/workflows/release.yml` runs on every `v*` tag. Without credentials it
+logs a notice and stops — a tag pushed for an ordinary release does not turn the
+workflow red. Add four repo secrets (Settings > Secrets and variables > Actions)
+and the same tag push publishes to Central:
+
+- `MAVEN_CENTRAL_USERNAME` — Central Portal token username
+- `MAVEN_CENTRAL_PASSWORD` — Central Portal token password
+- `SIGNING_KEY` — the full ASCII-armored secret key block
+- `SIGNING_KEY_PASSWORD` — that key's passphrase
+
+Export the key block with:
+
+```bash
+gpg --export-secret-keys --armor 470BEB80958AC4F8
+```
+
+Paste it into the `SIGNING_KEY` secret **verbatim, including the BEGIN/END
+lines**. GitHub secrets preserve real newlines, so unlike the gradle.properties
+form this one needs no `\n` escaping.
+
+## Renewing the signing key
+
+The current key expires **2028-08-05**. To replace it:
+
+```bash
+gpg --quick-generate-key "Mebius Release Signing <dev@mebius.io>" rsa4096 sign 2y
+gpg --list-secret-keys --keyid-format=long                    # note the new KEY_ID
+gpg --keyserver keyserver.ubuntu.com --send-keys <KEY_ID>     # Central verifies against this
+gpg --export-secret-keys --armor <KEY_ID>                     # feeds gradle.properties / SIGNING_KEY
+```
+
+Publishing the public key to a keyserver is not optional — Central checks the
+signature against it and rejects the deployment if it cannot find the key.

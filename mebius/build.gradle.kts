@@ -115,9 +115,14 @@ mavenPublishing {
     // Sign ONLY when a signing key is configured (required for Maven Central,
     // not for local installs / CI dry-runs). Provide a key via
     // ORG_GRADLE_PROJECT_signingInMemoryKey or signing.* gradle properties.
+    // Blank counts as absent: release.yml maps a GitHub secret straight into
+    // ORG_GRADLE_PROJECT_signingInMemoryKey, and an unset secret arrives as an
+    // empty string, not as nothing. `isPresent` was true for that empty value,
+    // so signing ran with no key and the build died on "Could not read PGP
+    // secret key" instead of skipping.
     val hasSigningKey =
-        providers.gradleProperty("signingInMemoryKey").isPresent ||
-            providers.gradleProperty("signing.keyId").isPresent
+        !providers.gradleProperty("signingInMemoryKey").orNull.isNullOrBlank() ||
+            !providers.gradleProperty("signing.keyId").orNull.isNullOrBlank()
     if (hasSigningKey) {
         signAllPublications()
     }

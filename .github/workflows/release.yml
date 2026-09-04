@@ -34,7 +34,24 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
+      # The one-time setup in PUBLISHING.md is the owner's to do, and until it is
+      # done every `v*` tag pushed for an ordinary release turned this workflow
+      # red. Absent credentials are not a build failure, so say so and stop.
+      - name: Check release credentials
+        id: creds
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+        run: |
+          if [ -z "$SIGNING_KEY" ] || [ -z "$MAVEN_CENTRAL_USERNAME" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Maven Central credentials are not configured, so this tag was not published. See PUBLISHING.md. JitPack serves this tag either way."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish + release to Maven Central
+        if: steps.creds.outputs.ready == 'true'
         run: ./gradlew :mebius:publishAndReleaseToMavenCentral --no-daemon --no-configuration-cache
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
