@@ -9,6 +9,8 @@ import io.mebius.sdk.internal.GatewayConfig
 import io.mebius.sdk.internal.LowLatencyPlayEngine
 import io.mebius.sdk.internal.PlayEngine
 import io.mebius.sdk.internal.PlaybackRoute
+import io.mebius.sdk.internal.RecoveryPolicy
+import io.mebius.sdk.internal.STALL_RECOVERY_MS
 import io.mebius.sdk.internal.ScalePlayEngine
 import io.mebius.sdk.internal.SignalingClient
 import io.mebius.sdk.internal.buildRoutes
@@ -72,6 +74,13 @@ public class MebiusPlayer internal constructor(
     private var accepted = false
     private var watchdog: Runnable? = null
     private var boundView: MebiusVideoView? = null
+
+    // Reopening a route that WAS delivering and then stopped. See loseRoute().
+    private val recovery = RecoveryPolicy()
+    private var recovering = false
+    private var recoveryCause: MebiusError? = null
+    private var recoveryTask: Runnable? = null
+    private var stallTask: Runnable? = null
 
     /** Optional listener for player events. Callbacks run on the main thread. */
     public var listener: MebiusPlayerListener? = null
@@ -183,6 +192,12 @@ public class MebiusPlayer internal constructor(
             // route is still on probation, however healthy its connection looks.
             accepted = true
             cancelWatchdog()
+            cancelStall()
+            // Proven healthy, so the recovery budget starts over. It counts
+            // CONSECUTIVE failures, not failures for the life of the player.
+            recovering = false
+            recoveryCause = null
+            recovery.reset()
             // Routes may differ in what they can offer, so the list is published per
             // accepted route rather than once per player.
             publishQualities()
@@ -191,20 +206,42 @@ public class MebiusPlayer internal constructor(
 
         override fun onBuffering() {
             if (!isCurrent()) return
+            // A stall that never ends is the black screen this exists for, and it
+            // arrives as one more buffering report that is never followed by
+            // playback. Start the countdown on the first one and let onPlaying
+            // cancel it; re-arming on every repeat would push the deadline out
+            // forever, because a frozen ExoPlayer keeps reporting.
+            if (accepted) armStall()
             dispatch(PlayerEvent.Buffering) { it.onBuffering() }
         }
 
         override fun onEnded() {
             if (!isCurrent()) return
-            dispatch(PlayerEvent.Ended) { it.onEnded() }
+            // Not necessarily the end of the broadcast. A segmented route reports
+            // the end of what IT can serve — the publisher reconnected, the edge
+            // recycled the session, the playlist went away for a moment — and on a
+            // broadcast that runs for days that happens long before the host stops.
+            // So it is treated as a lost route and PROVEN to be an ending; Ended is
+            // dispatched from giveUp() once reopening has failed.
+            //
+            // Before the route ever delivered a frame it is simpler still: it
+            // closed on us, so move to the next one rather than spending the rest
+            // of the first-frame budget on information already in hand.
+            if (!accepted) {
+                advance(MebiusError.ConnectionFailed("A Mebius route closed before delivering."))
+                return
+            }
+            loseRoute(null)
         }
 
         override fun onError(error: MebiusError) {
             if (!isCurrent()) return
-            // A route that has already delivered video and then fails is a real
-            // failure to report. One that fails before that is just a route to skip.
+            // A route that has already delivered video and then fails is worth
+            // trying to get back before it is reported: the same failure that ends
+            // a watch is the one a reopen fixes. One that fails before that is just
+            // a route to skip.
             if (accepted) {
-                dispatch(PlayerEvent.Error(error)) { it.onError(error) }
+                loseRoute(error)
                 return
             }
             advance(error)
@@ -225,6 +262,11 @@ public class MebiusPlayer internal constructor(
         playingStreamId = streamId
         routeIndex = 0
         accepted = false
+        recovering = false
+        recoveryCause = null
+        recovery.reset()
+        cancelStall()
+        cancelRecovery()
         startCurrentRoute()
     }
 
@@ -275,15 +317,118 @@ public class MebiusPlayer internal constructor(
         engine = null
         routeIndex += 1
         if (routeIndex >= routes.size) {
+            // Inside a recovery cycle this is not a verdict, it is one attempt that
+            // found nothing serving. The next attempt is the answer.
+            if (recovering) {
+                scheduleRecoveryAttempt()
+                return
+            }
             dispatch(PlayerEvent.Error(lastError)) { it.onError(lastError) }
             return
         }
         startCurrentRoute()
     }
 
+    /**
+     * Treats the serving route as dead and starts reopening the stream.
+     *
+     * This is the difference between a broadcast a viewer can leave running and
+     * one that has to be restarted by hand. Route selection ran once, in [play]:
+     * whichever route produced a frame served the rest of the session, and when it
+     * later died — a CDN edge restarting, the publisher reconnecting, the phone
+     * changing network — playback stopped and stayed stopped.
+     *
+     * The reopen walks the full route list again rather than retrying the dead
+     * one, because the usual causes take out one route and not the others. The
+     * token needs no handling here: [MebiusClient] renews it on its own schedule,
+     * and every route stamps the current token as it builds its URL.
+     *
+     * @param cause the failure that lost the route, or null when it simply ended.
+     *  Kept so that giving up reports what actually happened rather than a guess.
+     */
+    private fun loseRoute(cause: MebiusError?) {
+        if (recovering || !accepted) return
+        recovering = true
+        recoveryCause = cause
+        cancelWatchdog()
+        cancelStall()
+        // Tell the app before the first backoff. A spinner a second late still
+        // beats a still picture with nothing said about it.
+        dispatch(PlayerEvent.Buffering) { it.onBuffering() }
+        engine?.stop()
+        engine = null
+        scheduleRecoveryAttempt()
+    }
+
+    private fun scheduleRecoveryAttempt() {
+        cancelWatchdog()
+        cancelRecovery()
+        if (recovery.exhausted) {
+            giveUp()
+            return
+        }
+        val delay = recovery.nextDelayMs()
+        val task =
+            Runnable {
+                recoveryTask = null
+                // stop() can land anywhere inside the backoff, and reopening into a
+                // view the app has released is worse than not recovering at all.
+                if (playingStreamId == null || boundView == null) return@Runnable
+                routeIndex = 0
+                accepted = false
+                startCurrentRoute()
+            }
+        recoveryTask = task
+        main.postDelayed(task, delay)
+    }
+
+    /**
+     * Every route refused for the whole budget. Either the broadcast really is
+     * over or this device is off the network; both end the session as far as the
+     * app is concerned, and the reason reported is the one that lost the route.
+     */
+    private fun giveUp() {
+        recovering = false
+        engine?.stop()
+        engine = null
+        val cause = recoveryCause
+        recoveryCause = null
+        if (cause != null) {
+            dispatch(PlayerEvent.Error(cause)) { it.onError(cause) }
+        } else {
+            dispatch(PlayerEvent.Ended) { it.onEnded() }
+        }
+    }
+
+    private fun armStall() {
+        if (stallTask != null) return
+        val task =
+            Runnable {
+                stallTask = null
+                loseRoute(null)
+            }
+        stallTask = task
+        main.postDelayed(task, STALL_RECOVERY_MS)
+    }
+
+    private fun cancelStall() {
+        stallTask?.let { main.removeCallbacks(it) }
+        stallTask = null
+    }
+
+    private fun cancelRecovery() {
+        recoveryTask?.let { main.removeCallbacks(it) }
+        recoveryTask = null
+    }
+
     /** Stops playback and releases the rendering pipeline. */
     public fun stop() {
         cancelWatchdog()
+        cancelStall()
+        cancelRecovery()
+        recovering = false
+        recoveryCause = null
+        recovery.reset()
         playingStreamId = null
         engine?.stop()
         engine = null
