@@ -75,6 +75,14 @@ public interface MebiusClientListener {
 
     /** An error occurred. See [error] for the code and message. */
     public fun onError(error: MebiusError) {}
+
+    /**
+     * A fresh access token was fetched and is now in use.
+     *
+     * Purely informational: publishing and playback continue uninterrupted and
+     * nothing needs to be done in response.
+     */
+    public fun onTokenRefreshed() {}
 }
 
 /**
@@ -97,6 +105,26 @@ public interface MebiusBroadcasterListener {
 }
 
 /**
+ * One selectable rendition of a stream.
+ *
+ * Mebius does not transcode into a ladder today, so a live stream has exactly one
+ * rendition and [MebiusPlayer.qualities] is empty. That emptiness is the signal,
+ * not an omission: a player UI can hide its quality menu because the list says
+ * there is nothing to choose, rather than because someone guessed.
+ *
+ * @property id stable id to pass to [MebiusPlayer.setQuality].
+ * @property label human-readable label, e.g. `"720p"`. Safe to show as-is.
+ * @property heightPx frame height in pixels, or 0 when the rendition has no fixed one.
+ * @property bitrateKbps nominal video bitrate, or 0 when unknown.
+ */
+public data class MebiusQuality(
+    val id: String,
+    val label: String,
+    val heightPx: Int = 0,
+    val bitrateKbps: Int = 0,
+)
+
+/**
  * Listener for [MebiusPlayer] events.
  *
  * All callbacks are delivered on the Android main thread.
@@ -116,4 +144,11 @@ public interface MebiusPlayerListener {
 
     /** An error occurred during playback. */
     public fun onError(error: MebiusError) {}
+
+    /**
+     * The selectable renditions changed, because the player moved to a different
+     * delivery route. Fires once per accepted route, carrying the list as it now
+     * stands — today always empty, since no route offers a ladder.
+     */
+    public fun onQualitiesChanged(qualities: List<MebiusQuality>) {}
 }

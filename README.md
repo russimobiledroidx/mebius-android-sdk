@@ -248,12 +248,14 @@ A full Compose sample (broadcast + watch) lives in the [`sample/`](sample) modul
 | Class | Member | Signature |
 |---|---|---|
 | `Mebius` | `init` | `fun init(context: Context, appId: String, gateway: String)` |
-| `Mebius` | `connect` | `fun connect(token: String): MebiusClient` |
+| `Mebius` | `connect` | `fun connect(token: String, deliveries: List<MebiusDelivery> = emptyList(), getToken: (suspend () -> String)? = null): MebiusClient` |
 | `MebiusClient` | `createBroadcaster` | `fun createBroadcaster(video: Boolean = true, audio: Boolean = true): MebiusBroadcaster` |
 | `MebiusClient` | `createPlayer` | `fun createPlayer(mode: PlaybackMode = PlaybackMode.AUTO): MebiusPlayer` |
 | `MebiusClient` | `createMonitor` | `fun createMonitor(): MebiusPlayer` |
 | `MebiusDelivery` | `fromTokenResponse` | `fun fromTokenResponse(body: JSONObject?): List<MebiusDelivery>` |
-| `MebiusClient` | `updateToken` | `fun updateToken(newToken: String)` |
+| `MebiusClient` | `updateToken` | `fun updateToken(newToken: String)` — throws for a blank token or one scoped to another stream |
+| `MebiusPlayer` | `qualities` | `val qualities: List<MebiusQuality>` — empty means one rendition; hide the quality menu |
+| `MebiusPlayer` | `setQuality` | `fun setQuality(id: String)` — `"auto"` or an id from `qualities` |
 | `MebiusClient` | `disconnect` | `fun disconnect()` |
 | `MebiusBroadcaster` | `attachPreview` | `fun attachPreview(view: MebiusVideoView)` |
 | `MebiusBroadcaster` | `start` | `fun start(streamId: String)` |
@@ -348,7 +350,7 @@ sealed class MebiusError(val code: Code, message: String, cause: Throwable?) : E
 
 | Code | Meaning | Recommended recovery |
 |---|---|---|
-| `TOKEN_EXPIRED` | The session token has expired. | Fetch a new token from your backend, call `client.updateToken(...)` or reconnect via `Mebius.connect(...)`. |
+| `TOKEN_EXPIRED` | The session token has expired. | Better: pass `getToken` to `Mebius.connect(...)` and never reach this. Otherwise fetch a new token and call `client.updateToken(...)`. |
 | `PERMISSION_DENIED` | Camera/microphone permission not granted. | Request runtime permissions, then retry `start()`. |
 | `CONNECTION_FAILED` | Could not reach/maintain the gateway connection. | Check connectivity and retry with backoff. |
 | `NOT_CONNECTED` | Operation attempted while disconnected. | Ensure `Mebius.connect(...)` succeeded before creating broadcasters/players. |

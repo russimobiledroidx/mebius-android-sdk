@@ -61,6 +61,14 @@ public object Mebius {
      *  through as-is; Mebius orders it and picks from it. Optional, but without it
      *  every viewer is served from Mebius origin instead of the nearest edge — on
      *  mobile that is billed per viewer.
+     * @param getToken makes the session outlive one token. Give it a function that
+     *  mints a fresh token from your backend and Mebius calls it shortly BEFORE
+     *  `exp`, swapping the credential in place — no reconnect, no renegotiation, no
+     *  visible gap. A failing provider is retried with backoff for as long as the
+     *  current token is still valid, so [MebiusError.TokenExpired] is reported only
+     *  when the credential has genuinely run out. Each renewal emits
+     *  [MebiusClient.ClientEvent.TokenRefreshed]. Without it nothing changes: no
+     *  renewal is scheduled and expiry surfaces exactly when it always did.
      * @return a connected [MebiusClient].
      * @throws IllegalStateException if [init] has not been called.
      * @throws IllegalArgumentException if [token] is blank.
@@ -70,12 +78,13 @@ public object Mebius {
     public fun connect(
         token: String,
         deliveries: List<MebiusDelivery> = emptyList(),
+        getToken: (suspend () -> String)? = null,
     ): MebiusClient {
         val cfg = checkNotNull(config) { "Mebius.init(...) must be called before connect()." }
         val ctx = checkNotNull(appContext) { "Mebius.init(...) must be called before connect()." }
         require(token.isNotBlank()) { "token must not be blank." }
 
-        return MebiusClient(ctx, cfg, token, deliveries).also { it.markConnected() }
+        return MebiusClient(ctx, cfg, token, deliveries, getToken).also { it.markConnected() }
     }
 
     /** Whether [init] has been called. */

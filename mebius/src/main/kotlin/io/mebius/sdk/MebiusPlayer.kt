@@ -104,6 +104,65 @@ public class MebiusPlayer internal constructor(
         public data class Error(
             val error: MebiusError,
         ) : PlayerEvent
+
+        /** The selectable renditions changed because the route did. */
+        public data class QualitiesChanged(
+            val qualities: List<MebiusQuality>,
+        ) : PlayerEvent
+    }
+
+    @Volatile
+    private var renditions: List<MebiusQuality> = emptyList()
+
+    /**
+     * Renditions this stream can actually be switched between.
+     *
+     * Empty means there is exactly one rendition — or a route with no such concept —
+     * and a UI should HIDE its quality menu rather than offer a choice that does not
+     * exist. That is the whole reason this exists: a player built against an HLS
+     * ladder has a menu, and without a programmatic answer the only options were to
+     * show a fake one or to delete the feature on a hunch.
+     *
+     * It is empty for every Mebius stream today: the engine publishes one rendition
+     * and does no ladder transcoding. The property is here so a client can be written
+     * once, against the honest answer, and keep working unchanged if that changes.
+     *
+     * The list is per ROUTE, so it is re-read on failover and announced through
+     * [PlayerEvent.QualitiesChanged] / [MebiusPlayerListener.onQualitiesChanged].
+     */
+    public val qualities: List<MebiusQuality> get() = renditions
+
+    /**
+     * Chooses a rendition, or `"auto"` to let Mebius decide (the default).
+     *
+     * @throws IllegalArgumentException if [id] is not `"auto"` and not in
+     *  [qualities] — a UI that asks for a rendition and gets no error would
+     *  otherwise show the wrong state forever. Rejecting does not touch playback.
+     */
+    public fun setQuality(id: String) {
+        require(id == "auto" || renditions.any { it.id == id }) {
+            "Unknown quality \"$id\". Pass \"auto\", or an id from player.qualities."
+        }
+        // With one rendition there is nothing to switch to, so an accepted call is a
+        // no-op. No state is kept for it: an unread "selected id" would be a second
+        // source of truth to keep in step with the route, for no reader.
+    }
+
+    /**
+     * Re-reads the renditions for the route now serving and tells listeners.
+     *
+     * Emitted on route acceptance, not only when the list differs: "the route
+     * changed, here is what it offers" is the fact a client acts on, and suppressing
+     * an identical list would make the event fire or not depending on which route
+     * happened to win.
+     *
+     * No Mebius route exposes a ladder — the engine publishes a single rendition
+     * (`hlsVariant: lowLatency`, no ABR). Empty is the truthful answer, and this is
+     * the one place that has to change if that stops being true.
+     */
+    private fun publishQualities() {
+        renditions = emptyList()
+        dispatch(PlayerEvent.QualitiesChanged(renditions)) { it.onQualitiesChanged(renditions) }
     }
 
     /**
@@ -124,6 +183,9 @@ public class MebiusPlayer internal constructor(
             // route is still on probation, however healthy its connection looks.
             accepted = true
             cancelWatchdog()
+            // Routes may differ in what they can offer, so the list is published per
+            // accepted route rather than once per player.
+            publishQualities()
             dispatch(PlayerEvent.Playing) { it.onPlaying() }
         }
 
