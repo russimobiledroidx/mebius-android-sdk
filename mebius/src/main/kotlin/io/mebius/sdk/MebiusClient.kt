@@ -3,6 +3,7 @@ package io.mebius.sdk
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import io.mebius.sdk.internal.DEFAULT_MAX_BITRATE_KBPS
 import io.mebius.sdk.internal.GatewayConfig
 import io.mebius.sdk.internal.TokenInfo
 import io.mebius.sdk.internal.readToken
@@ -312,13 +313,23 @@ public class MebiusClient internal constructor(
      *  `CAMERA` runtime permission. Defaults to `true`.
      * @param audio whether to capture and publish the microphone. Requires the
      *  `RECORD_AUDIO` runtime permission. Defaults to `true`.
+     * @param maxBitrateKbps ceiling on what the video encoder may send. Defaults to
+     *  the ceiling every Mebius SDK uses, which matches the studio's OBS encoder —
+     *  so a broadcast costs the same whichever path it came from. Pass 0 to lift it
+     *  and let WebRTC decide.
+     *
+     *  Worth understanding before changing: nothing transcodes downstream, so every
+     *  viewer is delivered at exactly the bitrate published here. One broadcaster's
+     *  setting is multiplied by the size of its audience — a number that looks
+     *  generous for one host is a bandwidth bill for a thousand viewers.
      */
     public fun createBroadcaster(
         video: Boolean = true,
         audio: Boolean = true,
+        maxBitrateKbps: Int = DEFAULT_MAX_BITRATE_KBPS,
     ): MebiusBroadcaster {
         requireConnected()
-        return MebiusBroadcaster(appContext, config, tokenProvider, video, audio)
+        return MebiusBroadcaster(appContext, config, tokenProvider, video, audio, maxBitrateKbps)
     }
 
     /**

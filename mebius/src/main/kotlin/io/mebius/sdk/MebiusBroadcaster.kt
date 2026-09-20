@@ -3,6 +3,7 @@ package io.mebius.sdk
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import io.mebius.sdk.internal.DEFAULT_MAX_BITRATE_KBPS
 import io.mebius.sdk.internal.GatewayConfig
 import io.mebius.sdk.internal.PublishEngine
 import io.mebius.sdk.internal.SignalingClient
@@ -28,12 +29,14 @@ public class MebiusBroadcaster internal constructor(
     tokenProvider: () -> String,
     private val withVideo: Boolean,
     private val withAudio: Boolean,
+    private val maxBitrateKbps: Int = DEFAULT_MAX_BITRATE_KBPS,
 ) {
     private val appContext = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "mebius-broadcaster") }
 
-    private val engine = PublishEngine(appContext, SignalingClient(config, tokenProvider))
+    private val engine =
+        PublishEngine(appContext, SignalingClient(config, tokenProvider), maxBitrateKbps)
 
     @Volatile
     private var started = false
