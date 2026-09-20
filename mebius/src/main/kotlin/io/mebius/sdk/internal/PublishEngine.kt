@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit
 internal class PublishEngine(
     private val context: Context,
     private val signaling: SignalingClient,
+    private val maxBitrateKbps: Int = DEFAULT_MAX_BITRATE_KBPS,
 ) {
     private val factory = WebRtcCore.peerConnectionFactory(context)
 
@@ -87,6 +88,7 @@ internal class PublishEngine(
         pc.transceivers.forEach { it.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY }
 
         preferH264(pc)
+        applyBitrateCap(pc)
 
         val offer = createOffer(pc)
         pc.setLocalDescriptionBlocking(offer)
@@ -272,6 +274,36 @@ internal class PublishEngine(
     private fun awaitOrThrow(latch: CountDownLatch) {
         if (!latch.await(SDP_TIMEOUT_SEC, TimeUnit.SECONDS)) {
             throw MebiusError.ConnectionFailed("Timed out negotiating the media session.")
+        }
+    }
+
+    /**
+     * Caps what the video encoder may send.
+     *
+     * The capture size does not do this. It bounds the SOURCE — how many pixels
+     * arrive per second — while the encoder still chooses how many bits to spend
+     * describing them, and high-motion content (sport, above all) makes it spend
+     * near the top of its range. The sender's own encoding parameters are the only
+     * place the ceiling is real.
+     *
+     * Why it reaches past this device: nothing transcodes anywhere in the path, so
+     * every viewer is delivered at exactly the bitrate published here. One
+     * publisher's setting is multiplied by the size of its audience.
+     *
+     * Best effort. A device whose WebRTC build refuses the parameters publishes
+     * uncapped rather than failing to go live — an unbudgeted broadcast beats no
+     * broadcast, and the stats report the truth either way.
+     */
+    private fun applyBitrateCap(pc: PeerConnection) {
+        if (maxBitrateKbps <= 0) return
+        runCatching {
+            pc.senders
+                .filter { it.track()?.kind() == MediaStreamTrack.VIDEO_TRACK_KIND }
+                .forEach { sender ->
+                    val params = sender.parameters ?: return@forEach
+                    params.encodings.forEach { it.maxBitrateBps = maxBitrateKbps * 1000 }
+                    sender.parameters = params
+                }
         }
     }
 
