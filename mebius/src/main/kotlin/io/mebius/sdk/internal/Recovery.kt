@@ -3,7 +3,7 @@ package io.mebius.sdk.internal
 /**
  * Ceiling on what a publisher's video encoder may send, in kbps.
  *
- * 3500 matches what the studio's OBS encoder is configured to send, so a broadcast
+ * 2500 matches what the studio's OBS encoder is configured to send, so a broadcast
  * costs the same whichever path it came from — a host on a phone and a host in the
  * studio bill identically.
  *
@@ -14,7 +14,7 @@ package io.mebius.sdk.internal
  * Every Mebius SDK carries this same number. Changing it in one place without the
  * others makes the cost of a broadcast depend on which device made it.
  */
-internal const val DEFAULT_MAX_BITRATE_KBPS: Int = 3500
+internal const val DEFAULT_MAX_BITRATE_KBPS: Int = 2500
 
 /**
  * How long the picture may stand still before its route is treated as dead.
