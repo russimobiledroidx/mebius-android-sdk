@@ -113,6 +113,18 @@ class QualitySelectionTest {
     }
 
     @Test
+    fun `a reused player announces the rung again for a new stream`() {
+        val p = player(ladder)
+        engine.callbacks.onPlaying()
+        engine.callbacks.onVideoHeight(720)
+        p.stop()
+        p.play("s2", MebiusVideoView(context))
+        engine.callbacks.onPlaying()
+        engine.callbacks.onVideoHeight(720)
+        assertEquals(listOf("720p" to true, "720p" to true), seen)
+    }
+
+    @Test
     fun `a pin with no variant falls back to auto and says so`() {
         val p = player(ladder)
         engine.callbacks.onPlaying()

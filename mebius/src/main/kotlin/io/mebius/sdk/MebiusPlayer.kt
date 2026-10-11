@@ -413,6 +413,9 @@ public class MebiusPlayer internal constructor(
         playingStreamId = streamId
         routeIndex = 0
         accepted = false
+        // A new stream starts unannounced: de-duplication is per playback, not
+        // across streams on a reused player.
+        reportedQuality = null
         recovering = false
         recoveryCause = null
         recovery.reset()
