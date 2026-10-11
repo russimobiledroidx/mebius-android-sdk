@@ -1,6 +1,7 @@
 package io.mebius.sdk.internal
 
 import io.mebius.sdk.MebiusDelivery
+import io.mebius.sdk.MebiusQuality
 import io.mebius.sdk.PlaybackMode
 
 /**
@@ -28,6 +29,8 @@ internal const val KIND_LOCAL = "local"
 internal data class PlaybackRoute(
     val realtime: Boolean,
     val deliveryPath: String? = null,
+    /** The ladder this route serves; empty when it serves one rendition. */
+    val renditions: List<MebiusQuality> = emptyList(),
 )
 
 /**
@@ -53,9 +56,72 @@ internal fun buildRoutes(
     for (d in deliveries) {
         if (!d.isResolvable) continue
         if (d.kind == KIND_WIDE || d.kind == KIND_LOCAL) {
-            out += PlaybackRoute(realtime = false, deliveryPath = d.path)
+            // Only the wide master is a ladder; the same rule as iOS.
+            val ladder = if (d.kind == KIND_WIDE) d.renditions else emptyList()
+            out += PlaybackRoute(realtime = false, deliveryPath = d.path, renditions = ladder)
         }
     }
     out += PlaybackRoute(realtime = false)
     return out
+}
+
+/** How far a frame or variant height may sit from a rung's and still be it (1088 vs 1080). */
+internal const val RUNG_HEIGHT_TOLERANCE_PX = 16
+
+/**
+ * Index of the height in [heights] nearest [target], or null when none is within
+ * [RUNG_HEIGHT_TOLERANCE_PX] — a frame from outside the ladder (or outside the
+ * allowed set, before a reload lands) is not labelled with a rung it is not.
+ */
+internal fun nearestHeightIndex(
+    heights: List<Int>,
+    target: Int,
+): Int? {
+    if (target <= 0) return null
+    return heights.indices
+        .minByOrNull { kotlin.math.abs(heights[it] - target) }
+        ?.takeIf { kotlin.math.abs(heights[it] - target) <= RUNG_HEIGHT_TOLERANCE_PX }
+}
+
+/** The rendition a frame of [height] belongs to; see [nearestHeightIndex]. */
+internal fun qualityIdForHeight(
+    renditions: List<MebiusQuality>,
+    height: Int,
+): String? = nearestHeightIndex(renditions.map { it.heightPx }, height)?.let { renditions[it].id }
+
+/**
+ * The tallest rung no taller than [maxHeight] — or the shortest rung when none
+ * fits, because a cap below the ladder still has to play something.
+ */
+internal fun rungForMaxHeight(
+    renditions: List<MebiusQuality>,
+    maxHeight: Int,
+): MebiusQuality? =
+    renditions.filter { it.heightPx <= maxHeight }.maxByOrNull { it.heightPx }
+        ?: renditions.minByOrNull { it.heightPx }
+
+/**
+ * The rungs of [ladder] in [allowed], in ladder order. Null, empty, or no
+ * overlap means the whole ladder: a filter that leaves nothing to play is a
+ * filter that was not meant.
+ */
+internal fun allowedRungs(
+    ladder: List<MebiusQuality>,
+    allowed: List<String>?,
+): List<MebiusQuality> = ladder.filter { allowed == null || it.id in allowed }.ifEmpty { ladder }
+
+/**
+ * [path] with `q=<ids>` when [allowed] narrows [ladder], so the gateway serves a
+ * master playlist with only those variants. Unchanged otherwise — a stream
+ * without a ladder never sees the parameter.
+ */
+internal fun withQualityFilter(
+    path: String,
+    ladder: List<MebiusQuality>,
+    allowed: List<String>?,
+): String {
+    val rungs = allowedRungs(ladder, allowed)
+    if (rungs.size == ladder.size) return path
+    val sep = if (path.contains('?')) "&" else "?"
+    return path + sep + "q=" + rungs.joinToString(",") { java.net.URLEncoder.encode(it.id, "UTF-8") }
 }

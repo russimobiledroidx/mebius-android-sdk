@@ -20,6 +20,12 @@ internal interface PlayEngine {
         fun onEnded()
 
         fun onError(error: io.mebius.sdk.MebiusError)
+
+        /** The decoded video height changed. Only routes with a ladder report it. */
+        fun onVideoHeight(height: Int) {}
+
+        /** A pinned rendition has no matching variant on this route. */
+        fun onPinUnavailable() {}
     }
 
     /** Begins playback of [streamId] into [view]. */
@@ -31,6 +37,20 @@ internal interface PlayEngine {
 
     /** Sets output volume in the range 0f..1f. */
     fun setVolume(volume: Float)
+
+    /**
+     * Constrains which rendition plays: [pinHeight] > 0 pins the rung of that
+     * height, otherwise adaptive selection runs within [minHeight]..[maxHeight].
+     * Never called for a route without a ladder.
+     */
+    fun setVideoHeights(
+        pinHeight: Int,
+        minHeight: Int,
+        maxHeight: Int,
+    ) {}
+
+    /** Re-resolves the playlist URL and reloads it. */
+    fun reload() {}
 
     /** Stops playback and releases all resources. */
     fun stop()

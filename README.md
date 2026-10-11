@@ -46,7 +46,7 @@ supported, and is the only way to resolve a tag Central does not have yet.
 
 ```kotlin
 dependencies {
-    implementation("io.mebius:mebius-android-sdk:0.2.3")
+    implementation("io.mebius:mebius-android-sdk:0.5.0")
 }
 ```
 
@@ -77,8 +77,8 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    // <ref> = a release tag (v0.2.3), a commit hash, or `main-SNAPSHOT`
-    implementation("com.github.russimobiledroidx:mebius-android-sdk:v0.2.3")
+    // <ref> = a release tag (v0.5.0), a commit hash, or `main-SNAPSHOT`
+    implementation("com.github.russimobiledroidx:mebius-android-sdk:v0.5.0")
 }
 ```
 
@@ -196,6 +196,44 @@ with no error to react to; now the player moves on by itself.
 For watching the other side of a co-broadcast, use `client.createMonitor()` — same
 API as a player, different delay budget.
 
+### Quality (1080p / 720p / 480p)
+
+A stream published with the official encoder ladder arrives with `renditions` on
+its `wide` delivery; pass the token response's `deliveries` to `Mebius.connect`
+untouched and the player picks them up. Without them `qualities` stays empty and
+playback is exactly as before — hide the quality menu.
+
+```kotlin
+player.listener = object : MebiusPlayerListener {
+    override fun onQualitiesChanged(qualities: List<MebiusQuality>) { /* build the menu */ }
+    override fun onQualityChanged(id: String, auto: Boolean) { /* "720p", true */ }
+}
+
+player.qualities          // [MebiusQuality("1080p", ..., heightPx = 1080, bitrateKbps = 5000), ...]
+player.setQuality("720p") // pin a rendition
+player.setQuality("auto") // adaptive (default)
+player.setMaxQuality(720) // cap adaptive at the tallest rung <= 720 px; 0 lifts it
+player.setAllowedQualities(listOf("1080p", "720p")) // e.g. keep a phone off 480p; null = all
+```
+
+- `setQuality(id)` pins a rung and overrides `setMaxQuality`; it is reported at
+  once as `onQualityChanged(id, auto = false)`. In auto, the rung on screen is
+  reported with `auto = true`.
+- A pin survives failover to a route that offers the same id. If the new route
+  does not, or the pinned rung has no variant or fails, the player falls back to
+  auto and reports `onQualityChanged(id, auto = true)`.
+- `setAllowedQualities(ids)`: `qualities` lists only allowed rungs (ladder order)
+  and `onQualitiesChanged` fires when that list changes. Ids not on the ladder are
+  ignored; null, empty, or no overlap allows every rung. Adaptive selection stays
+  within the set (the master playlist is requested with `q=<ids>` and selection is
+  bounded locally too), and `setQuality` rejects an id outside it. Kept across
+  failover and recovery.
+
+Android plays the `wide` HLS master playlist and lets media3 ABR switch between
+its variants; `fast` is not played on this platform. Encoder settings and the
+wire format live in stream-engine `docs/INTEGRATION.md` — §3.1 "Official encoder
+profile" and §5.9 "Quality renditions".
+
 ---
 
 ## 4. Integration
@@ -265,6 +303,7 @@ A full Compose sample (broadcast + watch) lives in the [`sample/`](sample) modul
 | `MebiusClient` | `updateToken` | `fun updateToken(newToken: String)` — throws for a blank token or one scoped to another stream |
 | `MebiusPlayer` | `qualities` | `val qualities: List<MebiusQuality>` — empty means one rendition; hide the quality menu |
 | `MebiusPlayer` | `setQuality` | `fun setQuality(id: String)` — `"auto"` or an id from `qualities` |
+| `MebiusPlayer` | `setMaxQuality` | `fun setMaxQuality(height: Int)` — cap adaptive selection; `0` lifts it |
 | `MebiusClient` | `disconnect` | `fun disconnect()` |
 | `MebiusBroadcaster` | `attachPreview` | `fun attachPreview(view: MebiusVideoView)` |
 | `MebiusBroadcaster` | `start` | `fun start(streamId: String)` |
@@ -294,6 +333,8 @@ A full Compose sample (broadcast + watch) lives in the [`sample/`](sample) modul
 | `MebiusPlayer` | buffering | `onBuffering()` | `PlayerEvent.Buffering` |
 | `MebiusPlayer` | ended | `onEnded()` | `PlayerEvent.Ended` |
 | `MebiusPlayer` | stats | `onStats(MebiusPlaybackStats)` | `PlayerEvent.Stats` |
+| `MebiusPlayer` | qualities | `onQualitiesChanged(List<MebiusQuality>)` | `PlayerEvent.QualitiesChanged` |
+| `MebiusPlayer` | quality | `onQualityChanged(id, auto)` | `PlayerEvent.QualityChanged` |
 
 ### Listener interfaces
 
@@ -317,6 +358,8 @@ interface MebiusPlayerListener {
     fun onEnded() {}
     fun onStats(stats: MebiusPlaybackStats) {}
     fun onError(error: MebiusError) {}
+    fun onQualitiesChanged(qualities: List<MebiusQuality>) {}
+    fun onQualityChanged(id: String, auto: Boolean) {}
 }
 ```
 

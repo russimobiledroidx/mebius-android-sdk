@@ -5,10 +5,13 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.mebius.sdk.internal.FIRST_FRAME_TIMEOUT_MS
 import io.mebius.sdk.internal.GatewayConfig
 import io.mebius.sdk.internal.buildRoutes
+import io.mebius.sdk.internal.qualityIdForHeight
+import io.mebius.sdk.internal.rungForMaxHeight
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -135,5 +138,86 @@ class PlaybackRoutesTest {
         // Mirrored in web, Flutter and iOS so a viewer sees the same behaviour on
         // each platform. Changing it here alone is a bug.
         assertEquals(8_000L, FIRST_FRAME_TIMEOUT_MS)
+    }
+
+    private val ladder =
+        listOf(
+            MebiusQuality("1080p", "1080p", heightPx = 1080, bitrateKbps = 5000),
+            MebiusQuality("720p", "720p", heightPx = 720, bitrateKbps = 2800),
+            MebiusQuality("480p", "480p", heightPx = 480, bitrateKbps = 1000),
+        )
+
+    @Test
+    fun `renditions are parsed when present, skipping unusable rungs and unknown fields`() {
+        val json =
+            JSONArray(
+                """
+                [{"kind":"wide","path":"/d/wide/s1","future":1,"renditions":[
+                  {"id":"1080p","height":1080,"bitrateKbps":5000,"path":"/d/wide/s1/1080p","codec":"x"},
+                  {"id":"720p","height":720,"bitrateKbps":2800,"path":"/d/wide/s1/720p"},
+                  {"id":"480p","height":480,"path":"/d/wide/s1/480p"},
+                  {"height":360}, {"id":"nohe"}, null]}]
+                """.trimIndent(),
+            )
+        val r = MebiusDelivery.fromJson(json).single().renditions
+        assertEquals(listOf("1080p", "720p", "480p"), r.map { it.id })
+        assertEquals(5000, r[0].bitrateKbps)
+        assertEquals(0, r[2].bitrateKbps)
+        assertEquals(1080, buildRoutes(PlaybackMode.AUTO, MebiusDelivery.fromJson(json))[0].renditions[0].heightPx)
+    }
+
+    @Test
+    fun `no renditions field means no ladder, exactly as before`() {
+        val parsed = MebiusDelivery.fromJson(JSONArray("""[{"kind":"wide","path":"/d/wide/s1"}]"""))
+        assertEquals(listOf(MebiusDelivery("wide", "/d/wide/s1")), parsed)
+        assertTrue(buildRoutes(PlaybackMode.AUTO, parsed).all { it.renditions.isEmpty() })
+        assertNull(qualityIdForHeight(emptyList(), 1080))
+        assertNull(rungForMaxHeight(emptyList(), 720))
+    }
+
+    @Test
+    fun `only the wide route carries a ladder`() {
+        val routes =
+            buildRoutes(
+                PlaybackMode.AUTO,
+                listOf(MebiusDelivery("local", "/live/s1/index.m3u8", ladder), MebiusDelivery("wide", "/d/wide/s1", ladder)),
+            )
+        assertTrue(routes[0].renditions.isEmpty())
+        assertEquals(3, routes[1].renditions.size)
+    }
+
+    @Test
+    fun `a decoded height maps to the nearest rendition id`() {
+        assertEquals("1080p", qualityIdForHeight(ladder, 1080))
+        assertEquals("1080p", qualityIdForHeight(ladder, 1088))
+        assertEquals("720p", qualityIdForHeight(ladder, 720))
+        assertEquals("720p", qualityIdForHeight(ladder, 736))
+        assertNull("off the ladder", qualityIdForHeight(ladder, 360))
+        assertNull("beyond tolerance", qualityIdForHeight(ladder, 1097))
+        assertNull("no frame yet", qualityIdForHeight(ladder, 0))
+    }
+
+    @Test
+    fun `a max cap picks the tallest rung that fits, else the shortest`() {
+        assertEquals("1080p", rungForMaxHeight(ladder, 2160)?.id)
+        assertEquals("720p", rungForMaxHeight(ladder, 720)?.id)
+        assertEquals("480p", rungForMaxHeight(ladder, 600)?.id)
+        assertEquals("480p", rungForMaxHeight(ladder, 240)?.id)
+    }
+
+    @Test
+    fun `a player without renditions offers no qualities and accepts only auto`() {
+        val player =
+            MebiusPlayer(
+                context = ApplicationProvider.getApplicationContext(),
+                config = GatewayConfig(appId = "app", gateway = "https://gw.mebius.io"),
+                tokenProvider = { "tok" },
+                mode = PlaybackMode.SCALE,
+                deliveries = listOf(MebiusDelivery("wide", "/d/wide/s1")),
+            )
+        assertTrue(player.qualities.isEmpty())
+        player.setQuality("auto")
+        player.setMaxQuality(720)
+        assertThrows(IllegalArgumentException::class.java) { player.setQuality("720p") }
     }
 }

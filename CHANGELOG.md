@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.0
+
+- Quality selection for streams on the encoder ladder. A `wide` delivery that
+  carries `renditions` fills `player.qualities` (1080p / 720p / 480p, ids from the
+  gateway), `setQuality(id)` pins one, `setQuality("auto")` hands back to media3
+  ABR, and `setMaxQuality(height)` caps ABR at the tallest rung that fits.
+  `onQualityChanged(id, auto)` / `PlayerEvent.QualityChanged` reports the
+  change: a manual pick at once with `auto = false`, the rung on screen while in
+  auto. A pin is kept across failover to a route offering the same id; otherwise,
+  or when the pinned rung has no variant or fails, the player falls back to auto
+  and reports it with `auto = true`.
+- `setAllowedQualities(ids)` restricts the rungs used: `qualities` lists only
+  those, adaptive selection stays within them (master requested with `q=<ids>`,
+  plus local bounds), and `setQuality` rejects others. Null, empty or no overlap
+  means all rungs. Survives failover and recovery.
+- `MebiusDelivery` gains `renditions` (default empty). The constructor is
+  `@JvmOverloads`, so Java callers and code compiled against 0.4.0 keep the
+  two-argument constructor. `copy(...)` gains a parameter, so a call to it
+  compiled against 0.4.0 needs a recompile.
+- `PlayerEvent` gained the `QualityChanged` subclass: an exhaustive
+  `when (event)` without an `else` branch needs a case for it.
+
+  Deliveries without `renditions` play exactly as before: `qualities` stays
+  empty and the new calls do nothing.
+
 ## 0.4.0
 
 - Publishing is capped at 2500 kbps by default, matching the studio's OBS encoder,
