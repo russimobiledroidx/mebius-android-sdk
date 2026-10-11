@@ -1,9 +1,13 @@
 package io.mebius.sdk.internal
 
 import android.content.Context
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -35,6 +39,11 @@ internal class ScalePlayEngine(
 ) : PlayEngine {
     private var player: ExoPlayer? = null
 
+    // 0 = adaptive. Kept so a pin requested before the master playlist has loaded
+    // is applied once its variants are known.
+    private var pinHeight = 0
+    private var capHeight = Int.MAX_VALUE
+
     override fun play(
         streamId: String,
         view: MebiusVideoView,
@@ -61,6 +70,18 @@ internal class ScalePlayEngine(
                             Player.STATE_ENDED -> callbacks.onEnded()
                             else -> Unit
                         }
+                    }
+
+                    override fun onVideoSizeChanged(videoSize: VideoSize) {
+                        if (videoSize.height > 0) callbacks.onVideoHeight(videoSize.height)
+                    }
+
+                    override fun onTracksChanged(tracks: Tracks) {
+                        // The variants only exist once the master playlist is read.
+                        val pinned =
+                            exo.trackSelectionParameters.overrides.keys
+                                .any { it.type == C.TRACK_TYPE_VIDEO }
+                        if (pinHeight > 0 && !pinned) applyHeights(exo)
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
@@ -90,6 +111,39 @@ internal class ScalePlayEngine(
         ) {
             mainPost { callbacks.onError(MebiusError.ConnectionFailed(cause = e)) }
         }
+    }
+
+    override fun setVideoHeights(
+        pinHeight: Int,
+        capHeight: Int,
+    ) {
+        this.pinHeight = pinHeight
+        this.capHeight = capHeight
+        player?.let(::applyHeights)
+    }
+
+    /**
+     * Pin = an override on the variant nearest [pinHeight]; adaptive = no
+     * override, ABR capped at [capHeight]. Setting identical parameters is a
+     * no-op in ExoPlayer, so re-applying from onTracksChanged cannot loop.
+     */
+    private fun applyHeights(exo: ExoPlayer) {
+        val params =
+            exo.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                .setMaxVideoSize(Int.MAX_VALUE, capHeight)
+        if (pinHeight > 0) {
+            val group = exo.currentTracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO }
+            val track =
+                group?.let { g ->
+                    (0 until g.length).minByOrNull { kotlin.math.abs(g.getTrackFormat(it).height - pinHeight) }
+                }
+            if (group != null && track != null) {
+                params.setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track))
+            }
+        }
+        exo.trackSelectionParameters = params.build()
     }
 
     override fun setVolume(volume: Float) {

@@ -107,10 +107,10 @@ public interface MebiusBroadcasterListener {
 /**
  * One selectable rendition of a stream.
  *
- * Mebius does not transcode into a ladder today, so a live stream has exactly one
- * rendition and [MebiusPlayer.qualities] is empty. That emptiness is the signal,
- * not an omission: a player UI can hide its quality menu because the list says
- * there is nothing to choose, rather than because someone guessed.
+ * Only a delivery that carries `renditions` (a tenant on the encoder ladder) has
+ * more than one; every other stream has exactly one and [MebiusPlayer.qualities]
+ * is empty. That emptiness is the signal, not an omission: a player UI can hide
+ * its quality menu because the list says there is nothing to choose.
  *
  * @property id stable id to pass to [MebiusPlayer.setQuality].
  * @property label human-readable label, e.g. `"720p"`. Safe to show as-is.
@@ -148,7 +148,17 @@ public interface MebiusPlayerListener {
     /**
      * The selectable renditions changed, because the player moved to a different
      * delivery route. Fires once per accepted route, carrying the list as it now
-     * stands — today always empty, since no route offers a ladder.
+     * stands — empty when the route offers no ladder.
      */
     public fun onQualitiesChanged(qualities: List<MebiusQuality>) {}
+
+    /**
+     * The rendition on screen changed to [id]. [auto] is true while adaptive
+     * selection is choosing, false while a [MebiusPlayer.setQuality] pin holds.
+     * Never fires for a stream without renditions.
+     */
+    public fun onQualityChanged(
+        id: String,
+        auto: Boolean,
+    ) {}
 }

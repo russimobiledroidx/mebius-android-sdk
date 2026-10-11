@@ -14,10 +14,13 @@ import org.json.JSONObject
  *
  * @property kind Mebius intent label for this route.
  * @property path Mebius-relative path for this route.
+ * @property renditions the quality ladder this route serves, or empty when it
+ *  serves one rendition (every route without a ladder — the default).
  */
 public data class MebiusDelivery(
     val kind: String,
     val path: String,
+    val renditions: List<MebiusQuality> = emptyList(),
 ) {
     /**
      * Whether this route is safe to resolve against the Mebius gateway.
@@ -50,7 +53,23 @@ public data class MebiusDelivery(
             val kind = item?.optString("kind", "").orEmpty()
             val path = item?.optString("path", "").orEmpty()
             if (kind.isEmpty() || path.isEmpty()) return null
-            return MebiusDelivery(kind = kind, path = path)
+            return MebiusDelivery(kind = kind, path = path, renditions = parseRenditions(item?.optJSONArray("renditions")))
+        }
+
+        /**
+         * The `renditions` ladder, skipping any rung without an id or a height —
+         * the height is what maps a decoded frame back to an id, so a rung
+         * without one could never be reported.
+         */
+        private fun parseRenditions(json: JSONArray?): List<MebiusQuality> {
+            if (json == null) return emptyList()
+            return (0 until json.length()).mapNotNull { i ->
+                val r = json.optJSONObject(i) ?: return@mapNotNull null
+                val id = r.optString("id", "")
+                val height = r.optInt("height", 0)
+                if (id.isEmpty() || height <= 0) return@mapNotNull null
+                MebiusQuality(id = id, label = id, heightPx = height, bitrateKbps = r.optInt("bitrateKbps", 0))
+            }
         }
 
         /** Convenience overload for a whole token-response body. */

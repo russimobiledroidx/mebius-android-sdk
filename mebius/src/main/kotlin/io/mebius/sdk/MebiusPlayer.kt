@@ -14,6 +14,8 @@ import io.mebius.sdk.internal.STALL_RECOVERY_MS
 import io.mebius.sdk.internal.ScalePlayEngine
 import io.mebius.sdk.internal.SignalingClient
 import io.mebius.sdk.internal.buildRoutes
+import io.mebius.sdk.internal.qualityIdForHeight
+import io.mebius.sdk.internal.rungForMaxHeight
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -118,6 +120,15 @@ public class MebiusPlayer internal constructor(
         public data class QualitiesChanged(
             val qualities: List<MebiusQuality>,
         ) : PlayerEvent
+
+        /**
+         * The rendition now on screen changed. [auto] is true while adaptive
+         * selection is choosing, false while [setQuality] pins a rendition.
+         */
+        public data class QualityChanged(
+            val id: String,
+            val auto: Boolean,
+        ) : PlayerEvent
     }
 
     @Volatile
@@ -132,9 +143,9 @@ public class MebiusPlayer internal constructor(
      * ladder has a menu, and without a programmatic answer the only options were to
      * show a fake one or to delete the feature on a hunch.
      *
-     * It is empty for every Mebius stream today: the engine publishes one rendition
-     * and does no ladder transcoding. The property is here so a client can be written
-     * once, against the honest answer, and keep working unchanged if that changes.
+     * It is filled only when the gateway's delivery carries `renditions` (a tenant
+     * on the encoder ladder); the ids are the gateway's, never invented from tracks.
+     * Every other stream publishes one rendition and this stays empty.
      *
      * The list is per ROUTE, so it is re-read on failover and announced through
      * [PlayerEvent.QualitiesChanged] / [MebiusPlayerListener.onQualitiesChanged].
@@ -152,9 +163,59 @@ public class MebiusPlayer internal constructor(
         require(id == "auto" || renditions.any { it.id == id }) {
             "Unknown quality \"$id\". Pass \"auto\", or an id from player.qualities."
         }
-        // With one rendition there is nothing to switch to, so an accepted call is a
-        // no-op. No state is kept for it: an unread "selected id" would be a second
-        // source of truth to keep in step with the route, for no reader.
+        // With one rendition there is nothing to switch to, so "auto" is all that
+        // gets here and applying it is a no-op.
+        selectedQuality = id
+        applyQuality()
+        mainPost(::reportQuality)
+    }
+
+    /**
+     * Caps adaptive selection at [height] pixels — e.g. 720 on a metered network.
+     * Resolves to the tallest rendition no taller than [height], or the shortest
+     * when none fits. 0 lifts the cap. A pinned [setQuality] choice wins over the
+     * cap. No-op on a stream without renditions.
+     */
+    public fun setMaxQuality(height: Int) {
+        maxQualityHeight = height
+        applyQuality()
+    }
+
+    // "auto" or a rendition id. Survives failover only while the new route still
+    // offers that id; see publishQualities().
+    @Volatile
+    private var selectedQuality = "auto"
+
+    @Volatile
+    private var maxQualityHeight = 0
+    private var lastVideoHeight = 0
+    private var reportedQuality: Pair<String, Boolean>? = null
+
+    /** Hands the current choice to the engine serving the current route. */
+    private fun applyQuality() {
+        mainPost {
+            val ladder = routes.getOrNull(routeIndex)?.renditions.orEmpty()
+            // No ladder, nothing to constrain: routes without renditions play
+            // exactly as before this existed.
+            if (ladder.isEmpty()) return@mainPost
+            val pin = ladder.firstOrNull { it.id == selectedQuality }?.heightPx ?: 0
+            val cap =
+                if (maxQualityHeight > 0) {
+                    rungForMaxHeight(ladder, maxQualityHeight)?.heightPx ?: Int.MAX_VALUE
+                } else {
+                    Int.MAX_VALUE
+                }
+            engine?.setVideoHeights(pin, cap)
+        }
+    }
+
+    /** Announces the rendition on screen, once per change of id or auto flag. */
+    private fun reportQuality() {
+        val id = qualityIdForHeight(renditions, lastVideoHeight) ?: return
+        val now = id to (selectedQuality == "auto")
+        if (now == reportedQuality) return
+        reportedQuality = now
+        dispatch(PlayerEvent.QualityChanged(id, now.second)) { it.onQualityChanged(id, now.second) }
     }
 
     /**
@@ -165,13 +226,15 @@ public class MebiusPlayer internal constructor(
      * an identical list would make the event fire or not depending on which route
      * happened to win.
      *
-     * No Mebius route exposes a ladder — the engine publishes a single rendition
-     * (`hlsVariant: lowLatency`, no ABR). Empty is the truthful answer, and this is
-     * the one place that has to change if that stops being true.
+     * The list is the accepted route's `renditions` — empty for every route the
+     * gateway sends without a ladder. A pinned id the new route does not offer
+     * falls back to "auto" rather than pinning nothing.
      */
     private fun publishQualities() {
-        renditions = emptyList()
+        renditions = routes.getOrNull(routeIndex)?.renditions.orEmpty()
+        if (renditions.none { it.id == selectedQuality }) selectedQuality = "auto"
         dispatch(PlayerEvent.QualitiesChanged(renditions)) { it.onQualitiesChanged(renditions) }
+        reportQuality()
     }
 
     /**
@@ -246,6 +309,12 @@ public class MebiusPlayer internal constructor(
             }
             advance(error)
         }
+
+        override fun onVideoHeight(height: Int) {
+            if (!isCurrent()) return
+            lastVideoHeight = height
+            reportQuality()
+        }
     }
 
     /**
@@ -281,6 +350,9 @@ public class MebiusPlayer internal constructor(
         val callbacks = RouteCallbacks { started }
         started.play(streamId, view, callbacks)
         started.setVolume(volumeLevel)
+        lastVideoHeight = 0
+        reportedQuality = null
+        applyQuality()
         armWatchdog()
     }
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0
+
+- Quality selection for streams on the encoder ladder. A `wide` delivery that
+  carries `renditions` fills `player.qualities` (1080p / 720p / 480p, ids from the
+  gateway), `setQuality(id)` pins one, `setQuality("auto")` hands back to media3
+  ABR, and `setMaxQuality(height)` caps ABR at the tallest rung that fits.
+  `onQualityChanged(id, auto)` / `PlayerEvent.QualityChanged` reports the rung on
+  screen. `MebiusDelivery` gains `renditions` (default empty).
+
+  Deliveries without `renditions` play exactly as before: `qualities` stays
+  empty and the new calls do nothing.
+
 ## 0.4.0
 
 - Publishing is capped at 2500 kbps by default, matching the studio's OBS encoder,

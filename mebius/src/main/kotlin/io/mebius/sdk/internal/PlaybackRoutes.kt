@@ -1,6 +1,7 @@
 package io.mebius.sdk.internal
 
 import io.mebius.sdk.MebiusDelivery
+import io.mebius.sdk.MebiusQuality
 import io.mebius.sdk.PlaybackMode
 
 /**
@@ -28,6 +29,8 @@ internal const val KIND_LOCAL = "local"
 internal data class PlaybackRoute(
     val realtime: Boolean,
     val deliveryPath: String? = null,
+    /** The ladder this route serves; empty when it serves one rendition. */
+    val renditions: List<MebiusQuality> = emptyList(),
 )
 
 /**
@@ -53,9 +56,34 @@ internal fun buildRoutes(
     for (d in deliveries) {
         if (!d.isResolvable) continue
         if (d.kind == KIND_WIDE || d.kind == KIND_LOCAL) {
-            out += PlaybackRoute(realtime = false, deliveryPath = d.path)
+            out += PlaybackRoute(realtime = false, deliveryPath = d.path, renditions = d.renditions)
         }
     }
     out += PlaybackRoute(realtime = false)
     return out
 }
+
+/**
+ * The rendition a frame of [height] belongs to, or null with no ladder.
+ *
+ * Nearest rather than exact: a decoder can report 1088 for a 1080 rung, and the
+ * ids are the gateway's, so a frame must always map to one of them.
+ */
+internal fun qualityIdForHeight(
+    renditions: List<MebiusQuality>,
+    height: Int,
+): String? {
+    if (height <= 0) return null
+    return renditions.minByOrNull { kotlin.math.abs(it.heightPx - height) }?.id
+}
+
+/**
+ * The tallest rung no taller than [maxHeight] — or the shortest rung when none
+ * fits, because a cap below the ladder still has to play something.
+ */
+internal fun rungForMaxHeight(
+    renditions: List<MebiusQuality>,
+    maxHeight: Int,
+): MebiusQuality? =
+    renditions.filter { it.heightPx <= maxHeight }.maxByOrNull { it.heightPx }
+        ?: renditions.minByOrNull { it.heightPx }
