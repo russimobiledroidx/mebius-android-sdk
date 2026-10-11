@@ -13,9 +13,11 @@ import io.mebius.sdk.internal.RecoveryPolicy
 import io.mebius.sdk.internal.STALL_RECOVERY_MS
 import io.mebius.sdk.internal.ScalePlayEngine
 import io.mebius.sdk.internal.SignalingClient
+import io.mebius.sdk.internal.allowedRungs
 import io.mebius.sdk.internal.buildRoutes
 import io.mebius.sdk.internal.qualityIdForHeight
 import io.mebius.sdk.internal.rungForMaxHeight
+import io.mebius.sdk.internal.withQualityFilter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -47,6 +49,8 @@ public class MebiusPlayer internal constructor(
      */
     public val mode: PlaybackMode,
     deliveries: List<MebiusDelivery> = emptyList(),
+    // Tests substitute a fake transport; production always uses engineFor().
+    private val engineFactory: ((PlaybackRoute) -> PlayEngine)? = null,
 ) {
     private val appContext = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
@@ -66,7 +70,8 @@ public class MebiusPlayer internal constructor(
             route.realtime -> LowLatencyPlayEngine(appContext, signaling, ::mainPost)
             route.deliveryPath != null ->
                 ScalePlayEngine(appContext, ::mainPost) {
-                    signaling.deliveryUrl(route.deliveryPath)
+                    // Resolved per load, so a reload picks up the current allowed set.
+                    signaling.deliveryUrl(withQualityFilter(route.deliveryPath, route.renditions, allowedQualities))
                 }
             else -> ScalePlayEngine(appContext, ::mainPost) { signaling.originManifestUrl(it) }
         }
@@ -155,9 +160,16 @@ public class MebiusPlayer internal constructor(
     /**
      * Chooses a rendition, or `"auto"` to let Mebius decide (the default).
      *
+     * A pick overrides [setMaxQuality], is reported at once through
+     * [MebiusPlayerListener.onQualityChanged] with `auto = false`, and survives
+     * failover to a route that offers the same id; a route that does not — or a
+     * pinned rung that has no variant or fails — falls back to auto, reported
+     * with `auto = true`.
+     *
      * @throws IllegalArgumentException if [id] is not `"auto"` and not in
-     *  [qualities] — a UI that asks for a rendition and gets no error would
-     *  otherwise show the wrong state forever. Rejecting does not touch playback.
+     *  [qualities] (which excludes rungs outside [setAllowedQualities]) — a UI
+     *  that asks for a rendition and gets no error would otherwise show the wrong
+     *  state forever. Rejecting does not touch playback.
      */
     public fun setQuality(id: String) {
         require(id == "auto" || renditions.any { it.id == id }) {
@@ -172,13 +184,38 @@ public class MebiusPlayer internal constructor(
 
     /**
      * Caps adaptive selection at [height] pixels — e.g. 720 on a metered network.
-     * Resolves to the tallest rendition no taller than [height], or the shortest
-     * when none fits. 0 lifts the cap. A pinned [setQuality] choice wins over the
-     * cap. No-op on a stream without renditions.
+     * Resolves to the tallest allowed rendition no taller than [height], or the
+     * shortest when none fits. 0 lifts the cap. A pinned [setQuality] choice wins
+     * over the cap. No-op on a stream without renditions.
      */
     public fun setMaxQuality(height: Int) {
         maxQualityHeight = height
         applyQuality()
+    }
+
+    /**
+     * Restricts the rungs this player may use, e.g. `listOf("1080p", "720p")` to
+     * keep a phone off 480p. Null or empty allows every rung; ids the ladder does
+     * not have are ignored, and a list that matches none allows every rung.
+     *
+     * [qualities] then lists only the allowed rungs and adaptive selection stays
+     * within them — the gateway is asked for a master playlist with only those
+     * variants, and the player bounds its own selection too. A pinned rung that
+     * is no longer allowed falls back to auto. Kept across failover and recovery.
+     * No-op on a stream without renditions.
+     */
+    public fun setAllowedQualities(ids: List<String>?) {
+        mainPost {
+            val ladder = routes.getOrNull(routeIndex)?.renditions.orEmpty()
+            val before = allowedRungs(ladder, allowedQualities)
+            allowedQualities = ids?.toList()
+            if (ladder.isEmpty() || allowedRungs(ladder, allowedQualities) == before) return@mainPost
+            if (accepted) publishQualities(onlyIfChanged = true)
+            // The master playlist itself has to change, and only a reload fetches
+            // it again; the URL is resolved per load, so it now carries `q`.
+            engine?.reload()
+            applyQuality()
+        }
     }
 
     // "auto" or a rendition id. Survives failover only while the new route still
@@ -188,34 +225,65 @@ public class MebiusPlayer internal constructor(
 
     @Volatile
     private var maxQualityHeight = 0
+
+    @Volatile
+    private var allowedQualities: List<String>? = null
     private var lastVideoHeight = 0
     private var reportedQuality: Pair<String, Boolean>? = null
 
     /** Hands the current choice to the engine serving the current route. */
     private fun applyQuality() {
         mainPost {
-            val ladder = routes.getOrNull(routeIndex)?.renditions.orEmpty()
             // No ladder, nothing to constrain: routes without renditions play
             // exactly as before this existed.
-            if (ladder.isEmpty()) return@mainPost
+            val full = routes.getOrNull(routeIndex)?.renditions.orEmpty()
+            if (full.isEmpty()) return@mainPost
+            val ladder = allowedRungs(full, allowedQualities)
+            // Bounds only when the allowed set narrows the ladder — defence in
+            // depth behind the gateway's `q` filter, never a guess otherwise.
+            val narrowed = ladder.size < full.size
             val pin = ladder.firstOrNull { it.id == selectedQuality }?.heightPx ?: 0
-            val cap =
-                if (maxQualityHeight > 0) {
-                    rungForMaxHeight(ladder, maxQualityHeight)?.heightPx ?: Int.MAX_VALUE
-                } else {
-                    Int.MAX_VALUE
+            val min = if (narrowed) ladder.minOf { it.heightPx } else 0
+            val max =
+                when {
+                    maxQualityHeight > 0 -> rungForMaxHeight(ladder, maxQualityHeight)?.heightPx ?: Int.MAX_VALUE
+                    narrowed -> ladder.maxOf { it.heightPx }
+                    else -> Int.MAX_VALUE
                 }
-            engine?.setVideoHeights(pin, cap)
+            engine?.setVideoHeights(pin, min, max)
         }
     }
 
-    /** Announces the rendition on screen, once per change of id or auto flag. */
+    /**
+     * Announces the rendition, once per change of id or auto flag. A pin is
+     * reported as soon as it is chosen; in auto the rung on screen is.
+     */
     private fun reportQuality() {
-        val id = qualityIdForHeight(renditions, lastVideoHeight) ?: return
-        val now = id to (selectedQuality == "auto")
+        if (renditions.isEmpty()) return
+        val now =
+            if (selectedQuality != "auto") {
+                selectedQuality to false
+            } else {
+                (qualityIdForHeight(renditions, lastVideoHeight) ?: return) to true
+            }
         if (now == reportedQuality) return
         reportedQuality = now
-        dispatch(PlayerEvent.QualityChanged(id, now.second)) { it.onQualityChanged(id, now.second) }
+        dispatch(PlayerEvent.QualityChanged(now.first, now.second)) { it.onQualityChanged(now.first, now.second) }
+    }
+
+    /**
+     * A pin that cannot be served — no such variant, or the rung failed. Back to
+     * auto, said out loud: a UI left showing "1080p" while ABR plays something
+     * else is the wrong state forever.
+     */
+    private fun fallBackToAuto() {
+        if (selectedQuality == "auto") return
+        val pinned = selectedQuality
+        selectedQuality = "auto"
+        applyQuality()
+        val id = qualityIdForHeight(renditions, lastVideoHeight) ?: pinned
+        reportedQuality = id to true
+        dispatch(PlayerEvent.QualityChanged(id, true)) { it.onQualityChanged(id, true) }
     }
 
     /**
@@ -224,16 +292,22 @@ public class MebiusPlayer internal constructor(
      * Emitted on route acceptance, not only when the list differs: "the route
      * changed, here is what it offers" is the fact a client acts on, and suppressing
      * an identical list would make the event fire or not depending on which route
-     * happened to win.
+     * happened to win. [onlyIfChanged] is for a change of allowed set, where an
+     * unchanged list is no news.
      *
-     * The list is the accepted route's `renditions` — empty for every route the
-     * gateway sends without a ladder. A pinned id the new route does not offer
-     * falls back to "auto" rather than pinning nothing.
+     * The list is the accepted route's allowed `renditions` — empty for every
+     * route the gateway sends without a ladder. A pinned id the list does not
+     * offer falls back to "auto" rather than pinning nothing.
      */
-    private fun publishQualities() {
-        renditions = routes.getOrNull(routeIndex)?.renditions.orEmpty()
+    private fun publishQualities(onlyIfChanged: Boolean = false) {
+        val ladder = routes.getOrNull(routeIndex)?.renditions.orEmpty()
+        val next = allowedRungs(ladder, allowedQualities)
+        val changed = next != renditions
+        renditions = next
         if (renditions.none { it.id == selectedQuality }) selectedQuality = "auto"
-        dispatch(PlayerEvent.QualitiesChanged(renditions)) { it.onQualitiesChanged(renditions) }
+        if (changed || !onlyIfChanged) {
+            dispatch(PlayerEvent.QualitiesChanged(renditions)) { it.onQualitiesChanged(renditions) }
+        }
         reportQuality()
     }
 
@@ -304,10 +378,17 @@ public class MebiusPlayer internal constructor(
             // a watch is the one a reopen fixes. One that fails before that is just
             // a route to skip.
             if (accepted) {
+                // A pinned rung that fails is the pin's fault, not the route's:
+                // reopen in auto rather than retry the same rung.
+                fallBackToAuto()
                 loseRoute(error)
                 return
             }
             advance(error)
+        }
+
+        override fun onPinUnavailable() {
+            if (isCurrent()) fallBackToAuto()
         }
 
         override fun onVideoHeight(height: Int) {
@@ -345,7 +426,7 @@ public class MebiusPlayer internal constructor(
         val view = boundView ?: return
         val streamId = playingStreamId ?: return
         val route = routes.getOrNull(routeIndex) ?: return
-        val started = engineFor(route)
+        val started = engineFactory?.invoke(route) ?: engineFor(route)
         engine = started
         val callbacks = RouteCallbacks { started }
         started.play(streamId, view, callbacks)

@@ -46,7 +46,7 @@ supported, and is the only way to resolve a tag Central does not have yet.
 
 ```kotlin
 dependencies {
-    implementation("io.mebius:mebius-android-sdk:0.2.3")
+    implementation("io.mebius:mebius-android-sdk:0.5.0")
 }
 ```
 
@@ -77,8 +77,8 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    // <ref> = a release tag (v0.2.3), a commit hash, or `main-SNAPSHOT`
-    implementation("com.github.russimobiledroidx:mebius-android-sdk:v0.2.3")
+    // <ref> = a release tag (v0.5.0), a commit hash, or `main-SNAPSHOT`
+    implementation("com.github.russimobiledroidx:mebius-android-sdk:v0.5.0")
 }
 ```
 
@@ -213,7 +213,21 @@ player.qualities          // [MebiusQuality("1080p", ..., heightPx = 1080, bitra
 player.setQuality("720p") // pin a rendition
 player.setQuality("auto") // adaptive (default)
 player.setMaxQuality(720) // cap adaptive at the tallest rung <= 720 px; 0 lifts it
+player.setAllowedQualities(listOf("1080p", "720p")) // e.g. keep a phone off 480p; null = all
 ```
+
+- `setQuality(id)` pins a rung and overrides `setMaxQuality`; it is reported at
+  once as `onQualityChanged(id, auto = false)`. In auto, the rung on screen is
+  reported with `auto = true`.
+- A pin survives failover to a route that offers the same id. If the new route
+  does not, or the pinned rung has no variant or fails, the player falls back to
+  auto and reports `onQualityChanged(id, auto = true)`.
+- `setAllowedQualities(ids)`: `qualities` lists only allowed rungs (ladder order)
+  and `onQualitiesChanged` fires when that list changes. Ids not on the ladder are
+  ignored; null, empty, or no overlap allows every rung. Adaptive selection stays
+  within the set (the master playlist is requested with `q=<ids>` and selection is
+  bounded locally too), and `setQuality` rejects an id outside it. Kept across
+  failover and recovery.
 
 Android plays the `wide` HLS master playlist and lets media3 ABR switch between
 its variants; `fast` is not played on this platform. Encoder settings and the
