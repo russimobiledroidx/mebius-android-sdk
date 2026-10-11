@@ -148,7 +148,8 @@ internal class ScalePlayEngine(
      * ABR bounded to [minHeight]..[maxHeight]. Setting identical parameters is a
      * no-op in ExoPlayer, so re-applying from onTracksChanged cannot loop.
      *
-     * A pin with no variant of that height (once variants are known) is reported
+     * A pin with no variant within [RUNG_HEIGHT_TOLERANCE_PX] of that height (once
+     * variants are known) is reported
      * rather than approximated: the player falls back to auto and says so.
      */
     private fun applyHeights(exo: ExoPlayer) {
@@ -160,7 +161,7 @@ internal class ScalePlayEngine(
                 .setMaxVideoSize(Int.MAX_VALUE, maxHeight)
         val group = exo.currentTracks.groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO }
         if (pinHeight > 0 && group != null) {
-            val track = (0 until group.length).firstOrNull { group.getTrackFormat(it).height == pinHeight }
+            val track = nearestHeightIndex((0 until group.length).map { group.getTrackFormat(it).height }, pinHeight)
             if (track == null) {
                 callbacks?.onPinUnavailable()
                 return

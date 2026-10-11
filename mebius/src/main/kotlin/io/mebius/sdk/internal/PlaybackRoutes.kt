@@ -56,26 +56,38 @@ internal fun buildRoutes(
     for (d in deliveries) {
         if (!d.isResolvable) continue
         if (d.kind == KIND_WIDE || d.kind == KIND_LOCAL) {
-            out += PlaybackRoute(realtime = false, deliveryPath = d.path, renditions = d.renditions)
+            // Only the wide master is a ladder; the same rule as iOS.
+            val ladder = if (d.kind == KIND_WIDE) d.renditions else emptyList()
+            out += PlaybackRoute(realtime = false, deliveryPath = d.path, renditions = ladder)
         }
     }
     out += PlaybackRoute(realtime = false)
     return out
 }
 
+/** How far a frame or variant height may sit from a rung's and still be it (1088 vs 1080). */
+internal const val RUNG_HEIGHT_TOLERANCE_PX = 16
+
 /**
- * The rendition a frame of [height] belongs to, or null with no ladder.
- *
- * Nearest rather than exact: a decoder can report 1088 for a 1080 rung, and the
- * ids are the gateway's, so a frame must always map to one of them.
+ * Index of the height in [heights] nearest [target], or null when none is within
+ * [RUNG_HEIGHT_TOLERANCE_PX] — a frame from outside the ladder (or outside the
+ * allowed set, before a reload lands) is not labelled with a rung it is not.
  */
+internal fun nearestHeightIndex(
+    heights: List<Int>,
+    target: Int,
+): Int? {
+    if (target <= 0) return null
+    return heights.indices
+        .minByOrNull { kotlin.math.abs(heights[it] - target) }
+        ?.takeIf { kotlin.math.abs(heights[it] - target) <= RUNG_HEIGHT_TOLERANCE_PX }
+}
+
+/** The rendition a frame of [height] belongs to; see [nearestHeightIndex]. */
 internal fun qualityIdForHeight(
     renditions: List<MebiusQuality>,
     height: Int,
-): String? {
-    if (height <= 0) return null
-    return renditions.minByOrNull { kotlin.math.abs(it.heightPx - height) }?.id
-}
+): String? = nearestHeightIndex(renditions.map { it.heightPx }, height)?.let { renditions[it].id }
 
 /**
  * The tallest rung no taller than [maxHeight] — or the shortest rung when none

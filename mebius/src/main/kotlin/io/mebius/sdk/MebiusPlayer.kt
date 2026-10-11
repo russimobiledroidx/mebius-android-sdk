@@ -259,7 +259,8 @@ public class MebiusPlayer internal constructor(
      * reported as soon as it is chosen; in auto the rung on screen is.
      */
     private fun reportQuality() {
-        if (renditions.isEmpty()) return
+        // Before acceptance `renditions` still describes the previous route.
+        if (!accepted || renditions.isEmpty()) return
         val now =
             if (selectedQuality != "auto") {
                 selectedQuality to false
@@ -426,13 +427,17 @@ public class MebiusPlayer internal constructor(
         val view = boundView ?: return
         val streamId = playingStreamId ?: return
         val route = routes.getOrNull(routeIndex) ?: return
+        // Unpin before the route can report anything: a pin this route does not
+        // offer must never be announced as playing on it.
+        if (route.renditions.none { it.id == selectedQuality }) selectedQuality = "auto"
         val started = engineFactory?.invoke(route) ?: engineFor(route)
         engine = started
         val callbacks = RouteCallbacks { started }
         started.play(streamId, view, callbacks)
         started.setVolume(volumeLevel)
+        // reportedQuality is kept: it de-duplicates across routes, so a fallback
+        // to auto is not announced a second time once recovery lands.
         lastVideoHeight = 0
-        reportedQuality = null
         applyQuality()
         armWatchdog()
     }

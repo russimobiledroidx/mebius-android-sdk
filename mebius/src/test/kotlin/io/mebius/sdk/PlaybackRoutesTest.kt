@@ -176,11 +176,24 @@ class PlaybackRoutesTest {
     }
 
     @Test
+    fun `only the wide route carries a ladder`() {
+        val routes =
+            buildRoutes(
+                PlaybackMode.AUTO,
+                listOf(MebiusDelivery("local", "/live/s1/index.m3u8", ladder), MebiusDelivery("wide", "/d/wide/s1", ladder)),
+            )
+        assertTrue(routes[0].renditions.isEmpty())
+        assertEquals(3, routes[1].renditions.size)
+    }
+
+    @Test
     fun `a decoded height maps to the nearest rendition id`() {
         assertEquals("1080p", qualityIdForHeight(ladder, 1080))
         assertEquals("1080p", qualityIdForHeight(ladder, 1088))
         assertEquals("720p", qualityIdForHeight(ladder, 720))
-        assertEquals("480p", qualityIdForHeight(ladder, 360))
+        assertEquals("720p", qualityIdForHeight(ladder, 736))
+        assertNull("off the ladder", qualityIdForHeight(ladder, 360))
+        assertNull("beyond tolerance", qualityIdForHeight(ladder, 1097))
         assertNull("no frame yet", qualityIdForHeight(ladder, 0))
     }
 

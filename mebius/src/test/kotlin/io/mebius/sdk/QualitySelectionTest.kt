@@ -11,6 +11,8 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.shadows.ShadowLooper
+import java.util.concurrent.TimeUnit
 
 /** Drives [MebiusPlayer] through a fake transport, so no ExoPlayer is needed. */
 @RunWith(AndroidJUnit4::class)
@@ -53,17 +55,21 @@ class QualitySelectionTest {
         )
 
     private val context: Context = ApplicationProvider.getApplicationContext()
-    private val engine = FakeEngine()
+    private val engines = mutableListOf<FakeEngine>()
+    private val engine get() = engines.last()
     private val seen = mutableListOf<Pair<String, Boolean>>()
 
-    private fun player(renditions: List<MebiusQuality>): MebiusPlayer =
+    private fun player(
+        renditions: List<MebiusQuality>,
+        extra: List<MebiusDelivery> = emptyList(),
+    ): MebiusPlayer =
         MebiusPlayer(
             context = context,
             config = GatewayConfig(appId = "app", gateway = "https://gw.mebius.io"),
             tokenProvider = { "tok" },
             mode = PlaybackMode.SCALE,
-            deliveries = listOf(MebiusDelivery("wide", "/d/wide/s1", renditions)),
-            engineFactory = { engine },
+            deliveries = listOf(MebiusDelivery("wide", "/d/wide/s1", renditions)) + extra,
+            engineFactory = { FakeEngine().also { engines += it } },
         ).also {
             it.listener =
                 object : MebiusPlayerListener {
@@ -138,5 +144,46 @@ class QualitySelectionTest {
         assertEquals("/d/wide/s1", withQualityFilter("/d/wide/s1", ladder, listOf("x")))
         assertEquals("/d/wide/s1", withQualityFilter("/d/wide/s1", emptyList(), listOf("720p")))
         assertEquals("/d/wide/s1?q=1080p,720p", withQualityFilter("/d/wide/s1", ladder, listOf("720p", "1080p")))
+    }
+
+    @Test
+    fun `a pin is kept on a route that offers it and dropped before one that does not`() {
+        val p = player(ladder, extra = listOf(MebiusDelivery("local", "/live/s1/index.m3u8")))
+        engine.callbacks.onPlaying()
+        p.setQuality("1080p")
+        engine.callbacks.onEnded() // lost after delivering: reopen from the top
+        ShadowLooper.idleMainLooper(2, TimeUnit.SECONDS)
+        assertEquals("same wide route, pin kept", 1080, engine.heights.last().first)
+        engine.callbacks.onError(MebiusError.ConnectionFailed("x")) // before acceptance: next route
+        assertEquals(3, engines.size)
+        engine.callbacks.onVideoHeight(1080)
+        engine.callbacks.onPlaying()
+        assertTrue(p.qualities.isEmpty())
+        assertEquals(listOf("1080p" to false), seen)
+    }
+
+    @Test
+    fun `a fallback to auto is announced once, not again after recovery`() {
+        val p = player(ladder)
+        engine.callbacks.onPlaying()
+        engine.callbacks.onVideoHeight(720)
+        p.setQuality("1080p")
+        engine.callbacks.onError(MebiusError.ConnectionFailed("x"))
+        ShadowLooper.idleMainLooper(2, TimeUnit.SECONDS)
+        engine.callbacks.onVideoHeight(720)
+        engine.callbacks.onPlaying()
+        assertEquals(listOf("720p" to true, "1080p" to false, "720p" to true), seen)
+    }
+
+    @Test
+    fun `after narrowing, a frame from outside the set is not labelled`() {
+        val p = player(ladder)
+        engine.callbacks.onPlaying()
+        engine.callbacks.onVideoHeight(480)
+        p.setAllowedQualities(listOf("1080p", "720p"))
+        engine.callbacks.onVideoHeight(480) // old playlist, before the reload lands
+        assertEquals(listOf("480p" to true), seen)
+        engine.callbacks.onVideoHeight(720)
+        assertEquals("720p" to true, seen.last())
     }
 }
