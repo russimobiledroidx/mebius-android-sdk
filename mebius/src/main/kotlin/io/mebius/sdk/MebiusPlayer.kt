@@ -282,6 +282,9 @@ public class MebiusPlayer internal constructor(
         val pinned = selectedQuality
         selectedQuality = "auto"
         applyQuality()
+        // Before acceptance `renditions` describes the previous route; the
+        // accepted route reports itself through publishQualities.
+        if (!accepted) return
         val id = qualityIdForHeight(renditions, lastVideoHeight) ?: pinned
         reportedQuality = id to true
         dispatch(PlayerEvent.QualityChanged(id, true)) { it.onQualityChanged(id, true) }
@@ -304,6 +307,9 @@ public class MebiusPlayer internal constructor(
         val ladder = routes.getOrNull(routeIndex)?.renditions.orEmpty()
         val next = allowedRungs(ladder, allowedQualities)
         val changed = next != renditions
+        // A route without a ladder ends the announced quality: coming back to a
+        // laddered route must announce it again.
+        if (next.isEmpty()) reportedQuality = null
         renditions = next
         if (renditions.none { it.id == selectedQuality }) selectedQuality = "auto"
         if (changed || !onlyIfChanged) {
