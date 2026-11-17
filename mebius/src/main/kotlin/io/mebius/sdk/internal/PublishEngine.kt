@@ -177,8 +177,9 @@ internal class PublishEngine(
         )
     }
 
+    /** Never `localAudioTrack.setEnabled(false)`: see [WebRtcCore.setMicrophoneMute]. */
     fun setMicEnabled(enabled: Boolean) {
-        localAudioTrack?.setEnabled(enabled)
+        WebRtcCore.setMicrophoneMute(!enabled)
     }
 
     fun setCameraEnabled(enabled: Boolean) {
@@ -195,6 +196,8 @@ internal class PublishEngine(
     }
 
     fun stop() {
+        // The ADM mute is process-wide: release it for whatever comes next.
+        WebRtcCore.setMicrophoneMute(false)
         try {
             videoCapturer?.stopCapture()
         } catch (_: InterruptedException) {

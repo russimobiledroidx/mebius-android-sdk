@@ -46,7 +46,7 @@ supported, and is the only way to resolve a tag Central does not have yet.
 
 ```kotlin
 dependencies {
-    implementation("io.mebius:mebius-android-sdk:0.5.0")
+    implementation("io.mebius:mebius-android-sdk:0.5.1")
 }
 ```
 
@@ -77,8 +77,8 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    // <ref> = a release tag (v0.5.0), a commit hash, or `main-SNAPSHOT`
-    implementation("com.github.russimobiledroidx:mebius-android-sdk:v0.5.0")
+    // <ref> = a release tag (v0.5.1), a commit hash, or `main-SNAPSHOT`
+    implementation("com.github.russimobiledroidx:mebius-android-sdk:v0.5.1")
 }
 ```
 

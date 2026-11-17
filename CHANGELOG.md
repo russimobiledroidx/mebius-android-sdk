@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.1
+
+- `MebiusBroadcaster.setMicEnabled(false)` no longer stalls web viewers. It used
+  to disable the audio track, and libwebrtc stops the recorder once every send
+  stream is muted (`OnMuteStreamChanged: should_record = 0` → `StopRecording`),
+  so the broadcast carried no audio at all: the CDN relay wrote a video-only FLV
+  under an audio header and browser players (MSE buffers audio ∩ video) sat on a
+  spinner until the host unmuted. The mic is now muted at the audio device
+  module (`JavaAudioDeviceModule.setMicrophoneMute`): recording keeps running
+  and sends silence. `stop()` releases the mute, which is process-wide.
+
 ## 0.5.0
 
 - Quality selection for streams on the encoder ladder. A `wide` delivery that
